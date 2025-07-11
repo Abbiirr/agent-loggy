@@ -1,7 +1,9 @@
 import logging
 import re
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
+import gzip
+import lzma
 
 from ollama import Client
 
@@ -10,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class FileSearcher:
     """
-    Locates and verifies the appropriate log file based on extracted parameters.
+    Locates and verifies appropriate log files based on extracted parameters.
 
     Search order:
       1. error logs
@@ -36,48 +38,65 @@ class FileSearcher:
         self.client = llm_client
         self.model = model
 
-    def find_and_verify(self, params: Dict[str, any]) -> Optional[Path]:
+    def find_and_verify(self, params: Dict[str, Any]) -> List[Path]:
         """
-        Find the best file and verify via regex + LLM.
+        Find all verified files matching the search criteria.
         params should contain 'time_frame', 'domain', 'query_keys'.
-        Returns Path if verified, else None.
+        Returns List of Path objects for all verified files.
         """
         # First, list all available files for debugging
         self._list_all_files()
 
         tf = params.get("time_frame")
-        date_part = self._parse_time_frame(tf)
+        if not tf:
+            logger.error("No time_frame provided in parameters")
+            return []
+
+        try:
+            date_part = self._parse_time_frame(tf)
+        except Exception as e:
+            logger.error(f"Failed to parse time_frame '{tf}': {e}")
+            return []
 
         logger.info(f"Searching for logs with date: {date_part}")
         logger.info(f"Parameters: {params}")
 
+        verified_files = []
+
         for prefix in self.PREFIX_ORDER:
-            logger.info(f"Searching for {prefix} logs...")
+            logger.info(f"--- Searching for {prefix} logs ---")
             candidates = self._find_files_by_prefix_and_date(prefix, date_part, params)
 
             if candidates:
                 logger.info(f"Found {len(candidates)} candidate {prefix} files: {[f.name for f in candidates]}")
 
-                # Try each candidate file
+                # Check each candidate file
                 for path in candidates:
                     logger.info(f"Checking candidate file: {path}")
 
                     # Regex check
                     if self._regex_verify(path, params):
-                        logger.info(f"Regex verification passed for {path}")
+                        logger.info(f"✓ Regex verification passed for {path}")
+
                         # LLM verify
                         if self._llm_verify(path, params):
-                            logger.info(f"LLM verification passed for {path}")
-                            return path
+                            logger.info(f"✓ LLM verification passed for {path}")
+                            verified_files.append(path)
                         else:
-                            logger.debug(f"LLM verification failed for {path}")
+                            logger.debug(f"✗ LLM verification failed for {path}")
                     else:
-                        logger.debug(f"Regex verification failed for {path}")
+                        logger.debug(f"✗ Regex verification failed for {path}")
             else:
                 logger.info(f"No {prefix} files found for date {date_part}")
 
-        logger.warning(f"No verified log file found for {tf}")
-        return None
+        if verified_files:
+            logger.info(f"Total verified log files found: {len(verified_files)}")
+            for vf in verified_files:
+                logger.info(f"  ✓ {vf}")
+        else:
+            logger.warning(f"No verified log files found for {tf}")
+
+        return verified_files
 
     def _list_all_files(self):
         """List all files in the base directory for debugging"""
@@ -105,31 +124,12 @@ class FileSearcher:
             for file in sorted(xz_files):
                 logger.info(f"  - {file.name}")
 
-            # List .gz files
-            gz_files = list(self.base_dir.glob("*.gz"))
-            logger.info(f"All .gz files in directory ({len(gz_files)}):")
-            for file in sorted(gz_files):
-                logger.info(f"  - {file.name}")
-
-            # List .log files
-            log_files = list(self.base_dir.glob("*.log"))
-            logger.info(f"All .log files in directory ({len(log_files)}):")
-            for file in sorted(log_files):
-                logger.info(f"  - {file.name}")
-
-            # List files with 'log' in name
-            log_pattern_files = list(self.base_dir.glob("*log*"))
-            logger.info(f"All files with 'log' in name ({len(log_pattern_files)}):")
-            for file in sorted(log_pattern_files):
-                logger.info(f"  - {file.name}")
-
         except Exception as e:
             logger.error(f"Error listing files: {e}")
 
-    def _find_files_by_prefix_and_date(self, prefix: str, date_part: str, params: Dict[str, any]) -> List[Path]:
+    def _find_files_by_prefix_and_date(self, prefix: str, date_part: str, params: Dict[str, Any]) -> List[Path]:
         """
         Find all files matching the prefix and date pattern.
-        Handles different patterns for different log types.
         """
         candidates = []
 
@@ -150,36 +150,10 @@ class FileSearcher:
                 if match not in candidates:
                     candidates.append(match)
 
-            # Pattern 3: Just prefix with date somewhere in name
-            pattern3 = f"*{prefix}*{date_part}*{ext}"
-            matches3 = list(self.base_dir.glob(pattern3))
-            for match in matches3:
-                if match not in candidates:
-                    candidates.append(match)
-
-        # Also try without the date format conversion (in case files use different date format)
-        original_date_formats = [
-            params.get("time_frame", "").replace("/", "-"),  # 06.11.2024 -> 06.11.2024
-            params.get("time_frame", "").replace(".", "-"),  # 06.11.2024 -> 06-11-2024
-        ]
-
-        for orig_date in original_date_formats:
-            if orig_date:
-                for ext in extensions:
-                    pattern4 = f"*{prefix}*{orig_date}*{ext}"
-                    matches4 = list(self.base_dir.glob(pattern4))
-                    for match in matches4:
-                        if match not in candidates:
-                            candidates.append(match)
-
-        logger.debug(f"All patterns tried for {prefix}: ")
-        logger.debug(f"  - {prefix}.log.{date_part}.*")
-        logger.debug(f"  - *{prefix}*{date_part}*")
-        logger.debug(f"Found files: {[f.name for f in candidates]}")
-
+        logger.debug(f"Found {len(candidates)} candidates for {prefix}: {[f.name for f in candidates]}")
         return sorted(candidates)
 
-    def _regex_verify(self, path: Path, params: Dict[str, any]) -> bool:
+    def _regex_verify(self, path: Path, params: Dict[str, Any]) -> bool:
         """
         Quick check: filename or first lines contain domain or query_keys
         """
@@ -188,7 +162,6 @@ class FileSearcher:
         query_keys = params.get("query_keys", [])
 
         logger.debug(f"Regex verification for {path.name}")
-        logger.debug(f"Domain: {domain}, Query keys: {query_keys}")
 
         # Check domain keywords in filename
         if domain:
@@ -204,33 +177,35 @@ class FileSearcher:
                 logger.debug(f"Found query key '{key}' in filename")
                 return True
 
-        # Check a sample of file content (first 100 lines)
+        # Check file content
         try:
-            import gzip
-            import lzma
-
-            # Handle compressed files
-            if path.suffix == '.xz':
-                with lzma.open(path, 'rt', errors='ignore') as f:
-                    content_check = self._check_content(f, query_keys, 100)
-            elif path.suffix == '.gz':
-                with gzip.open(path, 'rt', errors='ignore') as f:
-                    content_check = self._check_content(f, query_keys, 100)
-            else:
-                with path.open("r", errors="ignore") as f:
-                    content_check = self._check_content(f, query_keys, 100)
-
+            content_check = self._check_file_content(path, query_keys, 100)
             if content_check:
                 logger.debug(f"Found query keys in file content")
                 return True
-
         except Exception as e:
             logger.error(f"Error reading file {path}: {e}")
 
-        # If no specific matches found, return True for broader verification by LLM
-        # This allows the LLM to make the final decision
+        # Allow LLM to make final decision even if regex doesn't find specific matches
         logger.debug(f"No specific matches found in regex check, allowing LLM verification")
         return True
+
+    def _check_file_content(self, path: Path, query_keys: List, max_lines: int = 100) -> bool:
+        """Check if any query keys are present in the file content"""
+        try:
+            # Handle compressed files
+            if path.suffix == '.xz':
+                with lzma.open(path, 'rt', errors='ignore') as f:
+                    return self._check_content(f, query_keys, max_lines)
+            elif path.suffix == '.gz':
+                with gzip.open(path, 'rt', errors='ignore') as f:
+                    return self._check_content(f, query_keys, max_lines)
+            else:
+                with path.open("r", errors="ignore") as f:
+                    return self._check_content(f, query_keys, max_lines)
+        except Exception as e:
+            logger.error(f"Error reading file content: {e}")
+            return False
 
     def _check_content(self, file_handle, query_keys: List, max_lines: int = 100) -> bool:
         """Check if any query keys are present in the file content"""
@@ -245,43 +220,22 @@ class FileSearcher:
             logger.error(f"Error checking content: {e}")
         return False
 
-    def _llm_verify(self, path: Path, params: Dict[str, any]) -> bool:
+    def _llm_verify(self, path: Path, params: Dict[str, Any]) -> bool:
         """
-        Use LLM to confirm if the file likely contains relevant logs.
+        Use LLM to confirm if the file likely contains relevant logs based on filename only.
         """
-        # Read a small snippet
-        snippet = ""
-        try:
-            import lzma
-            import gzip
+        logger.info(f"Starting LLM verification for {path.name}")
 
-            # Handle compressed files
-            if path.suffix == '.xz':
-                with lzma.open(path, 'rt', errors='ignore') as f:
-                    snippet = "".join([f.readline() for _ in range(20)])
-            elif path.suffix == '.gz':
-                with gzip.open(path, 'rt', errors='ignore') as f:
-                    snippet = "".join([f.readline() for _ in range(20)])
-            else:
-                with path.open("r", errors="ignore") as f:
-                    snippet = "".join([f.readline() for _ in range(20)])
-        except Exception as e:
-            logger.error(f"Error reading file for LLM verification: {e}")
-            snippet = ""
-
-        if not snippet.strip():
-            logger.warning(f"No content found in {path.name} for LLM verification")
-            return False
-
+        # Simple prompt based only on filename with clear date format explanation
         prompt = (
             f"We are searching for logs with these parameters:\n"
-            f"- Time frame: {params.get('time_frame')}\n"
+            f"- Time frame: {params.get('time_frame')} (DD.MM.YYYY format)\n"
             f"- Domain: {params.get('domain')}\n"
             f"- Query keys: {params.get('query_keys')}\n\n"
-            f"Here is a snippet from the file {path.name}:\n"
-            f"---\n{snippet}\n---\n\n"
-            f"Question: Based on the search parameters and this file snippet, "
-            f"does this file likely contain the logs we need?\n"
+            f"Filename: {path.name}\n\n"
+            f"Note: In the filename, the date appears as YYYY-MM-DD format.\n"
+            f"Example: '11.07.2025' in DD.MM.YYYY format corresponds to '2025-07-11' in the filename.\n\n"
+            f"Question: Based ONLY on the filename, does this file likely contain logs for the specified time frame?\n"
             f"Reply with YES or NO only."
         )
 
@@ -291,8 +245,21 @@ class FileSearcher:
                 messages=[{"role": "user", "content": prompt}],
             )
             content = resp["message"]["content"].strip().upper()
-            logger.debug(f"LLM response for {path.name}: {content}")
-            return content.startswith("YES")
+
+            # Debug the actual content character by character
+            logger.info(f"LLM raw response: '{resp['message']['content']}'")
+            logger.info(f"After strip & upper: '{content}'")
+            logger.info(f"First 5 chars: '{content[-5:]}'")
+            logger.info(f"Contains 'YES': {'YES' in content}")
+
+            # Fix: Use 'in' operator instead of startswith
+            result = 'YES' in content
+            if result:
+                logger.info(f"✓ LLM verification PASSED for {path.name}")
+            else:
+                logger.info(f"✗ LLM verification FAILED for {path.name}")
+
+            return result
         except Exception as e:
             logger.error(f"Error during LLM verification: {e}")
             return False

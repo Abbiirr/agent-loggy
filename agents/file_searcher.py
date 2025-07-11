@@ -99,7 +99,7 @@ class FileSearcher:
         return verified_files
 
     def _list_all_files(self):
-        """List all files in the base directory for debugging"""
+        """List all files in the base directory and subdirectories for debugging"""
         try:
             logger.info(f"Searching in directory: {self.base_dir}")
             logger.info(f"Directory exists: {self.base_dir.exists()}")
@@ -109,7 +109,7 @@ class FileSearcher:
                 logger.error(f"Base directory does not exist: {self.base_dir}")
                 return
 
-            # List all files first
+            # List all files in base directory
             all_files = list(self.base_dir.iterdir())
             logger.info(f"All files and directories in base directory ({len(all_files)}):")
             for item in sorted(all_files):
@@ -118,18 +118,18 @@ class FileSearcher:
                 elif item.is_dir():
                     logger.info(f"  DIR:  {item.name}")
 
-            # List .xz files specifically
-            xz_files = list(self.base_dir.glob("*.xz"))
-            logger.info(f"All .xz files in directory ({len(xz_files)}):")
+            # List .xz files in base directory and subdirectories
+            xz_files = list(self.base_dir.rglob("*.xz"))
+            logger.info(f"All .xz files in directory and subdirectories ({len(xz_files)}):")
             for file in sorted(xz_files):
-                logger.info(f"  - {file.name}")
+                logger.info(f"  - {file.relative_to(self.base_dir)}")
 
         except Exception as e:
             logger.error(f"Error listing files: {e}")
 
     def _find_files_by_prefix_and_date(self, prefix: str, date_part: str, params: Dict[str, Any]) -> List[Path]:
         """
-        Find all files matching the prefix and date pattern.
+        Find all files matching the prefix and date pattern in base directory and subdirectories.
         """
         candidates = []
 
@@ -139,18 +139,19 @@ class FileSearcher:
         for ext in extensions:
             # Pattern 1: prefix.log.YYYY-MM-DD.ext
             pattern1 = f"{prefix}.log.{date_part}{ext}"
-            matches1 = list(self.base_dir.glob(pattern1))
+            matches1 = list(self.base_dir.rglob(pattern1))
             candidates.extend(matches1)
 
             # Pattern 2: prefix.log.YYYY-MM-DD.*.ext (with hour)
             pattern2 = f"{prefix}.log.{date_part}.*{ext}"
-            matches2 = list(self.base_dir.glob(pattern2))
+            matches2 = list(self.base_dir.rglob(pattern2))
             # Filter out duplicates
             for match in matches2:
                 if match not in candidates:
                     candidates.append(match)
 
-        logger.debug(f"Found {len(candidates)} candidates for {prefix}: {[f.name for f in candidates]}")
+        logger.debug(
+            f"Found {len(candidates)} candidates for {prefix}: {[f.relative_to(self.base_dir) if f.is_relative_to(self.base_dir) else f.name for f in candidates]}")
         return sorted(candidates)
 
     def _regex_verify(self, path: Path, params: Dict[str, Any]) -> bool:
@@ -249,7 +250,7 @@ class FileSearcher:
             # Debug the actual content character by character
             logger.info(f"LLM raw response: '{resp['message']['content']}'")
             logger.info(f"After strip & upper: '{content}'")
-            logger.info(f"First 5 chars: '{content[-5:]}'")
+            logger.info(f"Last 5 chars: '{content[-5:]}'")
             logger.info(f"Contains 'YES': {'YES' in content}")
 
             # Fix: Use 'in' operator instead of startswith

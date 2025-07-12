@@ -530,6 +530,7 @@ class FullLogFinder:
     def _write_comprehensive_trace_file(self, file_handle, trace_data):
         """
         Write a comprehensive trace file that includes entries from multiple log files.
+        Logs are sorted by timestamp for chronological order.
         """
         f = file_handle
 
@@ -542,22 +543,43 @@ class FullLogFinder:
         f.write(f"SOURCE FILES: {', '.join([Path(f).name for f in trace_data['source_files']])}\n")
         f.write("=" * 80 + "\n\n")
 
-        # Timeline Summary across all files
+        # Timeline Summary across all files (already sorted)
         f.write("COMPREHENSIVE TIMELINE (All Files):\n")
         f.write("-" * 50 + "\n")
-        for step in trace_data['timeline']:
+        for i, step in enumerate(trace_data['timeline'], 1):
             source_file = step.get('source_file', 'Unknown')
             f.write(
-                f"{step['sequence']:2d}. {step['timestamp']} - {step['operation']} [{step['level']}] ({Path(source_file).name if source_file != 'Unknown' else 'Unknown'})\n")
+                f"{i:2d}. {step['timestamp']} - {step['operation']} [{step['level']}] ({Path(source_file).name if source_file != 'Unknown' else 'Unknown'})\n")
         f.write("\n" + "=" * 80 + "\n\n")
 
-        # Group entries by source file
-        f.write("LOG ENTRIES BY SOURCE FILE:\n")
+        # Sort ALL log entries by timestamp chronologically
+        f.write("LOG ENTRIES (Chronological Order):\n")
+        f.write("-" * 50 + "\n\n")
+
+        # Sort all entries by timestamp
+        sorted_entries = sorted(trace_data['log_entries'], key=lambda x: x.get('timestamp', ''))
+
+        for i, entry in enumerate(sorted_entries, 1):
+            source_file = entry.get('source_file', 'Unknown')
+            f.write(f"ENTRY {i} - {Path(source_file).name}:\n")
+            f.write(f"Timestamp: {entry.get('timestamp', 'N/A')}\n")
+            f.write("-" * 40 + "\n")
+
+            if 'original_xml' in entry:
+                f.write(entry['original_xml'])
+            elif 'raw_content' in entry:
+                f.write(entry['raw_content'])
+            else:
+                f.write("<!-- Original XML not available -->\n")
+            f.write("\n" + "=" * 60 + "\n\n")
+
+        # OPTIONAL: Also show entries grouped by source file (for reference)
+        f.write("LOG ENTRIES BY SOURCE FILE (Reference):\n")
         f.write("-" * 50 + "\n\n")
 
         # Group entries by source file
         entries_by_file = {}
-        for entry in trace_data['log_entries']:
+        for entry in sorted_entries:  # Use the sorted entries
             source_file = entry.get('source_file', 'Unknown')
             if source_file not in entries_by_file:
                 entries_by_file[source_file] = []
@@ -570,7 +592,7 @@ class FullLogFinder:
             f.write("-" * 30 + "\n")
 
             for i, entry in enumerate(entries, 1):
-                f.write(f"ENTRY {i}:\n")
+                f.write(f"File Entry {i}: {entry.get('timestamp', 'N/A')}\n")
                 if 'original_xml' in entry:
                     f.write(entry['original_xml'])
                 elif 'raw_content' in entry:

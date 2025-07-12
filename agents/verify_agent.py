@@ -1,4 +1,4 @@
-# agents/verify_agent.py
+# agents/verify_agent.py - Enhanced version with combined output
 
 import logging
 from pathlib import Path
@@ -12,23 +12,18 @@ logger = logging.getLogger(__name__)
 
 class VerifyAgent:
     """
-    Verifies log quality, ranks relevance, and provides concise analysis opinion.
-
-    Responsibilities:
-    1. Check if found logs are sufficient or need further searching
-    2. Rank log outputs by relevance to the original context
-    3. Provide concise summary of findings
-    4. Give concise opinion on what likely happened based on the logs
+    Enhanced VerifyAgent that creates comprehensive files containing both
+    verification analysis and complete log content for each trace.
     """
 
-    def __init__(self, client: Client, model: str, output_dir: str = "verification_output"):
+    def __init__(self, client: Client, model: str, output_dir: str = "comprehensive_analysis"):
         self.client = client
         self.model = model
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"VerifyAgent initialized with model: {model}, output directory: {self.output_dir}")
 
-    def analyze_and_verify_concise(
+    def analyze_and_create_comprehensive_files(
             self,
             original_context: str,
             search_results: Dict,
@@ -37,172 +32,159 @@ class VerifyAgent:
             output_prefix: str = None
     ) -> Dict:
         """
-        Complete verification and analysis with concise single-file output.
+        Create comprehensive files for each trace containing both analysis and full logs.
 
         Args:
             original_context: The original user query/context
             search_results: Results from log searching
             trace_data: Comprehensive trace data from all log files
             parameters: Extracted parameters from original context
-            output_prefix: Custom prefix for output file
+            output_prefix: Custom prefix for output files
 
         Returns:
-            Dictionary with concise analysis results and file path
+            Dictionary with analysis results and created file paths
         """
-        logger.info("Starting concise log verification and analysis...")
+        logger.info("Creating comprehensive analysis files for each trace...")
 
-        # Step 1: Assess log quality (concise)
-        quality_assessment = self._assess_log_quality_concise(
-            original_context, search_results, trace_data, parameters
+        all_trace_data = trace_data.get('all_trace_data', {})
+        if not all_trace_data:
+            logger.warning("No trace data available for analysis")
+            return self._create_empty_result()
+
+        # Step 1: Perform overall quality assessment
+        overall_quality = self._assess_overall_quality(original_context, search_results, trace_data, parameters)
+
+        # Step 2: Create comprehensive file for each trace
+        created_files = []
+        trace_analyses = {}
+
+        for trace_id, comprehensive_trace_data in all_trace_data.items():
+            logger.info(f"Creating comprehensive file for trace: {trace_id}")
+
+            # Analyze this specific trace
+            trace_analysis = self._analyze_single_trace(
+                trace_id, comprehensive_trace_data, original_context, parameters
+            )
+
+            # Create comprehensive file
+            file_path = self._create_comprehensive_trace_file(
+                trace_id, trace_analysis, comprehensive_trace_data,
+                original_context, parameters, overall_quality, output_prefix
+            )
+
+            created_files.append(file_path)
+            trace_analyses[trace_id] = trace_analysis
+
+            logger.info(f"✓ Created comprehensive file: {file_path}")
+
+        # Step 3: Create master summary file
+        master_summary_path = self._create_master_summary_file(
+            original_context, search_results, trace_analyses,
+            overall_quality, parameters, created_files, output_prefix
         )
 
-        # Step 2: Rank top 3 traces by relevance (concise)
-        ranked_traces = self._rank_traces_concise(
-            original_context, trace_data, parameters
-        )
-
-        # Step 3: Generate concise summary
-        summary = self._generate_summary_concise(
-            original_context, search_results, trace_data, ranked_traces
-        )
-
-        # Step 4: Provide concise expert opinion
-        expert_opinion = self._generate_expert_opinion_concise(
-            original_context, trace_data, ranked_traces, parameters
-        )
-
-        # Step 5: Determine next steps
-        next_steps = self._determine_next_steps_concise(
-            quality_assessment, ranked_traces, original_context
-        )
-
-        # Compile concise results
         results = {
             'analysis_timestamp': dt.now().isoformat(),
             'original_context': original_context,
             'parameters': parameters,
-            'quality_assessment': quality_assessment,
-            'ranked_traces': ranked_traces[:3],  # Top 3 only
-            'summary': summary,
-            'expert_opinion': expert_opinion,
-            'next_steps': next_steps,
-            'confidence_score': quality_assessment.get('overall_confidence', 0),
-            'further_search_needed': {
-                'decision': next_steps.get('decision', 'FURTHER_INVESTIGATION_REQUIRED'),
-                'confidence_level': next_steps.get('confidence_level', 'LOW'),
-                'priority_actions': next_steps.get('priority_actions', [])
-            },
+            'overall_quality_assessment': overall_quality,
+            'trace_analyses': trace_analyses,
+            'comprehensive_files_created': created_files,
+            'master_summary_file': master_summary_path,
+            'total_traces_analyzed': len(trace_analyses),
+            'confidence_score': overall_quality.get('overall_confidence', 0),
             'metadata': {
                 'total_files_searched': search_results.get('total_files', 0),
                 'total_matches': search_results.get('total_matches', 0),
-                'unique_traces': len(trace_data.get('all_trace_data', {})),
+                'unique_traces': len(all_trace_data),
                 'model_used': self.model
             }
         }
 
-        # Save concise output and add file path to results
-        output_path = self._save_concise_analysis(results, output_prefix)
-        results['output_file_path'] = output_path
-
-        logger.info(f"Concise analysis completed. Confidence: {results['confidence_score']}/100")
-        logger.info(f"Output saved to: {output_path}")
+        logger.info(f"Comprehensive analysis completed for {len(created_files)} traces")
+        logger.info(f"Master summary: {master_summary_path}")
         return results
 
-    def _assess_log_quality_concise(
-            self,
-            original_context: str,
-            search_results: Dict,
-            trace_data: Dict,
-            parameters: Dict
-    ) -> Dict:
-        """
-        Assess log quality with concise output.
-        """
-        logger.info("Assessing log quality (concise)...")
+    def _analyze_single_trace(
+                self,
+                trace_id: str,
+                trace_data: Dict,
+                original_context: str,
+                parameters: Dict
+        ) -> Dict:
+            """Analyze a single trace for relevance and findings by inspecting actual log content."""
 
-        prompt = f"""
-Rate log search quality for banking dispute analysis. Answer with JSON only.
+            # Extract key log messages and timeline for analysis
+            log_entries = trace_data.get('log_entries', [])
+            timeline = trace_data.get('timeline', [])
 
-CONTEXT: {original_context[:150]}
-SEARCH: {search_results.get('total_files', 0)} files, {search_results.get('total_matches', 0)} matches, {len(trace_data.get('all_trace_data', {}))} traces
+            # Get sample log messages for context
+            sample_messages = []
+            for entry in log_entries[:10]:  # First 10 entries
+                message = entry.get('message', '')
+                if message and len(message) > 20:  # Only meaningful messages
+                    sample_messages.append(message[:200])  # First 200 chars
 
-Rate 0-100:
-COMPLETENESS: Enough data to understand the issue?
-RELEVANCE: Data relates to the dispute?
-COVERAGE: Transaction flow covered?
+            # Get timeline summary
+            timeline_steps = []
+            for step in timeline[:15]:  # First 15 timeline events
+                operation = step.get('operation', 'Unknown')
+                timestamp = step.get('timestamp', 'N/A')
+                level = step.get('level', 'INFO')
+                timeline_steps.append(f"{timestamp} [{level}] {operation}")
 
-JSON format only:
-{{
-    "completeness_score": <number>,
-    "relevance_score": <number>,
-    "coverage_score": <number>,
-    "overall_confidence": <average of above 3>,
-    "status": "<one line assessment>",
-    "key_gaps": ["<gap1>", "<gap2>"]
-}}
-"""
-
-        try:
-            response = self.client.chat(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Banking log analyst. Respond with valid JSON only. No text before or after JSON."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-            )
-
-            raw_response = response["message"]["content"].strip()
-            assessment = self._safe_parse_json(raw_response, self._parse_quality_fallback)
-            logger.info(f"Quality assessment: {assessment.get('overall_confidence', 0)}/100")
-            return assessment
-
-        except Exception as e:
-            logger.error(f"Error in quality assessment: {e}")
-            return self._get_default_quality()
-
-    def _rank_traces_concise(
-            self,
-            original_context: str,
-            trace_data: Dict,
-            parameters: Dict
-    ) -> List[Dict]:
-        """
-        Rank top 3 traces by relevance with concise output.
-        """
-        logger.info("Ranking traces (concise)...")
-
-        all_trace_data = trace_data.get('all_trace_data', {})
-        if not all_trace_data:
-            return []
-
-        ranked_traces = []
-
-        for trace_id, data in list(all_trace_data.items())[:5]:  # Limit to top 5 for processing
             prompt = f"""
-Rate trace relevance for banking dispute. JSON only.
+    You are a senior banking systems analyst investigating a transaction dispute. Analyze this trace by examining the actual log content to understand what happened during this transaction request.
 
-DISPUTE: {original_context[:120]}
-ACCOUNTS: {parameters.get('query_keys', [])}
-DATE: {parameters.get('time_frame', '')}
+    ORIGINAL DISPUTE: {original_context[:300]}
 
-TRACE: {trace_id} - {data.get('total_entries', 0)} entries, {len(data.get('timeline', []))} events
+    SEARCH PARAMETERS:
+    - Time Frame: {parameters.get('time_frame', 'N/A')}
+    - Account Numbers: {parameters.get('query_keys', [])}
+    - Domain/System: {parameters.get('domain', 'N/A')}
 
-Rate relevance 0-100 and identify key finding.
+    TRACE ANALYSIS DATA:
+    - Trace ID: {trace_id}
+    - Total Log Entries: {trace_data.get('total_entries', 0)}
+    - Source Log Files: {len(trace_data.get('source_files', []))}
+    - Timeline Events: {len(timeline)}
 
-JSON only:
-{{
-    "relevance_score": <number>,
-    "key_finding": "<one sentence finding>",
-    "indicators": ["<indicator1>", "<indicator2>"],
-    "concerns": ["<concern1>", "<concern2>"]
-}}
-"""
+    ACTUAL LOG MESSAGES (Sample):
+    {chr(10).join(f"• {msg}" for msg in sample_messages[:8])}
+
+    CHRONOLOGICAL TIMELINE:
+    {chr(10).join(f"  {step}" for step in timeline_steps[:12])}
+
+    DEEP ANALYSIS REQUIRED:
+    Based on the actual log content above, analyze what really happened in this transaction request:
+
+    1. What was the transaction attempting to do?
+    2. Did it complete successfully or fail? At what stage?
+    3. What specific errors, warnings, or issues occurred?
+    4. What was the final outcome/status?
+    5. How does this relate to the customer's complaint?
+    6. What evidence supports or contradicts the customer's claim?
+
+    Provide detailed forensic analysis in JSON format:
+
+    {{
+        "relevance_score": <0-100>,
+        "transaction_summary": "<what the transaction was attempting to do>",
+        "transaction_outcome": "<successful|failed|timeout|partial|unknown>",
+        "failure_point": "<where it failed if applicable>",
+        "key_finding": "<one sentence conclusion about what happened>",
+        "primary_issue": "<system_error|user_error|processing_delay|insufficient_data|normal_flow|network_issue|validation_error|timeout>",
+        "confidence_level": "<HIGH|MEDIUM|LOW>",
+        "evidence_found": ["<specific evidence from logs>", "<evidence 2>"],
+        "critical_indicators": ["<technical indicators>", "<indicator 2>"],
+        "error_messages": ["<actual error messages found>"],
+        "timeline_summary": "<step-by-step what happened>",
+        "customer_claim_assessment": "<supported|contradicted|partially_supported|insufficient_evidence>",
+        "root_cause_analysis": "<likely root cause based on logs>",
+        "recommendation": "<specific next action needed>",
+        "technical_details": "<technical findings for engineers>"
+    }}
+    """
 
             try:
                 response = self.client.chat(
@@ -210,7 +192,7 @@ JSON only:
                     messages=[
                         {
                             "role": "system",
-                            "content": "Banking log analyst. JSON only. No explanations."
+                            "content": "You are a senior banking systems analyst with expertise in transaction processing, log analysis, and dispute resolution. Analyze the provided log data thoroughly to understand exactly what happened during this transaction. Focus on technical details and evidence-based conclusions."
                         },
                         {
                             "role": "user",
@@ -220,383 +202,411 @@ JSON only:
                 )
 
                 raw_response = response["message"]["content"].strip()
-                ranking = self._safe_parse_json(raw_response, self._parse_ranking_fallback)
+                analysis = self._safe_parse_json(raw_response, self._default_trace_analysis)
 
-                ranked_traces.append({
-                    'trace_id': trace_id,
-                    'trace_data': data,
-                    'relevance_score': ranking.get('relevance_score', 50),
-                    'key_finding': ranking.get('key_finding', 'No specific finding'),
-                    'indicators': ranking.get('indicators', []),
-                    'concerns': ranking.get('concerns', [])
-                })
+                # Add computed fields
+                analysis['trace_id'] = trace_id
+                analysis['total_entries'] = trace_data.get('total_entries', 0)
+                analysis['source_files_count'] = len(trace_data.get('source_files', []))
+                analysis['log_sample_size'] = len(sample_messages)
+                analysis['timeline_events_analyzed'] = len(timeline_steps)
+
+                return analysis
 
             except Exception as e:
-                logger.error(f"Error ranking trace {trace_id}: {e}")
-                ranked_traces.append({
-                    'trace_id': trace_id,
-                    'trace_data': data,
-                    'relevance_score': 40,
-                    'key_finding': 'Ranking failed - manual review needed',
-                    'indicators': [],
-                    'concerns': ['Analysis error']
-                })
+                logger.error(f"Error analyzing trace {trace_id}: {e}")
+                return self._default_trace_analysis(trace_id)
 
-        # Sort by relevance (highest first) and return top 3
-        ranked_traces.sort(key=lambda x: x['relevance_score'], reverse=True)
-        return ranked_traces[:3]
+    def _create_comprehensive_trace_file(
+            self,
+            trace_id: str,
+            trace_analysis: Dict,
+            trace_data: Dict,
+            original_context: str,
+            parameters: Dict,
+            overall_quality: Dict,
+            output_prefix: str = None
+    ) -> str:
+        """Create a comprehensive file with analysis + full logs for a single trace."""
 
-    def _generate_summary_concise(
+        timestamp = dt.now().strftime("%Y%m%d_%H%M%S")
+        safe_trace_id = re.sub(r'[^\w\-_]', '_', trace_id)
+        prefix = output_prefix or "comprehensive"
+
+        filename = f"{prefix}_trace_{safe_trace_id}_{timestamp}.txt"
+        file_path = self.output_dir / filename
+
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                self._write_comprehensive_trace_content(
+                    f, trace_id, trace_analysis, trace_data,
+                    original_context, parameters, overall_quality
+                )
+
+            return str(file_path)
+
+        except Exception as e:
+            logger.error(f"Error creating comprehensive file for trace {trace_id}: {e}")
+            raise
+
+    def _write_comprehensive_trace_content(
+            self,
+            file_handle,
+            trace_id: str,
+            trace_analysis: Dict,
+            trace_data: Dict,
+            original_context: str,
+            parameters: Dict,
+            overall_quality: Dict
+    ):
+        """Write the complete content for a comprehensive trace file."""
+
+        f = file_handle
+
+        # =====================================
+        # HEADER SECTION
+        # =====================================
+        f.write("COMPREHENSIVE BANKING LOG ANALYSIS\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"Generated: {dt.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Trace ID: {trace_id}\n")
+        f.write(f"Analysis Model: {self.model}\n")
+        f.write("=" * 60 + "\n\n")
+
+        # =====================================
+        # EXECUTIVE SUMMARY
+        # =====================================
+        f.write("EXECUTIVE SUMMARY\n")
+        f.write("-" * 20 + "\n")
+        f.write(f"Relevance Score: {trace_analysis.get('relevance_score', 0)}/100\n")
+        f.write(f"Confidence Level: {trace_analysis.get('confidence_level', 'UNKNOWN')}\n")
+        f.write(f"Primary Issue: {trace_analysis.get('primary_issue', 'UNKNOWN')}\n")
+        f.write(f"Total Log Entries: {trace_data.get('total_entries', 0)}\n")
+        f.write(f"Source Files: {len(trace_data.get('source_files', []))}\n")
+        f.write(f"Recommendation: {trace_analysis.get('recommendation', 'Further investigation needed')}\n")
+        f.write("\n")
+
+        # =====================================
+        # ORIGINAL DISPUTE CONTEXT
+        # =====================================
+        f.write("ORIGINAL DISPUTE\n")
+        f.write("-" * 17 + "\n")
+        f.write(f"{original_context}\n\n")
+
+        # =====================================
+        # SEARCH PARAMETERS
+        # =====================================
+        f.write("SEARCH PARAMETERS\n")
+        f.write("-" * 18 + "\n")
+        f.write(f"Time Frame: {parameters.get('time_frame', 'N/A')}\n")
+        f.write(f"Domain: {parameters.get('domain', 'N/A')}\n")
+        f.write(f"Account Numbers: {', '.join(str(k) for k in parameters.get('query_keys', []))}\n")
+        f.write("\n")
+
+        # =====================================
+        # DETAILED ANALYSIS
+        # =====================================
+        f.write("DETAILED ANALYSIS\n")
+        f.write("-" * 18 + "\n")
+        f.write(f"Key Finding: {trace_analysis.get('key_finding', 'No specific finding identified')}\n")
+        f.write(f"Timeline Summary: {trace_analysis.get('timeline_summary', 'Timeline analysis not available')}\n")
+        f.write("\n")
+
+        # Critical Indicators
+        indicators = trace_analysis.get('critical_indicators', [])
+        if indicators:
+            f.write("Critical Indicators:\n")
+            for i, indicator in enumerate(indicators, 1):
+                f.write(f"  {i}. {indicator}\n")
+        else:
+            f.write("Critical Indicators: None identified\n")
+        f.write("\n")
+
+        # Concerns
+        concerns = trace_analysis.get('concerns', [])
+        if concerns:
+            f.write("Concerns/Red Flags:\n")
+            for i, concern in enumerate(concerns, 1):
+                f.write(f"  {i}. {concern}\n")
+        else:
+            f.write("Concerns/Red Flags: None identified\n")
+        f.write("\n")
+
+        # =====================================
+        # TRACE TIMELINE
+        # =====================================
+        f.write("TRANSACTION TIMELINE\n")
+        f.write("-" * 20 + "\n")
+        timeline = trace_data.get('timeline', [])
+        if timeline:
+            f.write(f"Total Events: {len(timeline)}\n")
+            f.write("Chronological Flow:\n\n")
+
+            for i, event in enumerate(timeline, 1):
+                source_file = event.get('source_file', 'Unknown')
+                f.write(f"{i:2d}. {event.get('timestamp', 'N/A')}")
+                f.write(f" | {event.get('level', 'INFO'):5s}")
+                f.write(f" | {event.get('operation', 'Unknown Operation')}")
+                f.write(f" | {Path(source_file).name if source_file != 'Unknown' else 'Unknown'}\n")
+        else:
+            f.write("No timeline events available\n")
+        f.write("\n")
+
+        # =====================================
+        # SOURCE FILES
+        # =====================================
+        f.write("SOURCE LOG FILES\n")
+        f.write("-" * 17 + "\n")
+        source_files = trace_data.get('source_files', [])
+        if source_files:
+            for i, file_path in enumerate(source_files, 1):
+                f.write(f"{i}. {file_path}\n")
+        else:
+            f.write("No source files identified\n")
+        f.write("\n")
+
+        # =====================================
+        # COMPLETE LOG ENTRIES
+        # =====================================
+        f.write("COMPLETE LOG ENTRIES (Chronological Order)\n")
+        f.write("=" * 50 + "\n\n")
+
+        log_entries = trace_data.get('log_entries', [])
+        if log_entries:
+            # Sort by timestamp for chronological order
+            sorted_entries = sorted(log_entries, key=lambda x: x.get('timestamp', ''))
+
+            for i, entry in enumerate(sorted_entries, 1):
+                source_file = entry.get('source_file', 'Unknown')
+                f.write(f"LOG ENTRY {i}\n")
+                f.write("-" * 15 + "\n")
+                f.write(f"Source: {Path(source_file).name if source_file != 'Unknown' else 'Unknown'}\n")
+                f.write(f"Timestamp: {entry.get('timestamp', 'N/A')}\n")
+                f.write(f"Thread: {entry.get('thread_name', 'N/A')}\n")
+                f.write(f"Level: {entry.get('log_level', 'N/A')}\n")
+                f.write("\nFull Log Content:\n")
+                f.write("-" * 20 + "\n")
+
+                # Write the original XML content
+                if 'original_xml' in entry:
+                    f.write(entry['original_xml'])
+                elif 'raw_content' in entry:
+                    f.write(entry['raw_content'])
+                else:
+                    f.write("<!-- Original XML content not available -->\n")
+
+                f.write("\n" + "=" * 60 + "\n\n")
+        else:
+            f.write("No log entries available for this trace.\n\n")
+
+        # =====================================
+        # TECHNICAL DETAILS
+        # =====================================
+        f.write("TECHNICAL ANALYSIS DETAILS\n")
+        f.write("-" * 27 + "\n")
+        f.write(f"Overall Data Quality: {overall_quality.get('overall_confidence', 0)}/100\n")
+        f.write(f"Completeness Score: {overall_quality.get('completeness_score', 0)}/100\n")
+        f.write(f"Relevance Score: {overall_quality.get('relevance_score', 0)}/100\n")
+        f.write(f"Coverage Score: {overall_quality.get('coverage_score', 0)}/100\n")
+        f.write("\n")
+
+        # =====================================
+        # FOOTER
+        # =====================================
+        f.write("=" * 60 + "\n")
+        f.write("END OF COMPREHENSIVE ANALYSIS\n")
+        f.write(f"File generated by Enhanced VerifyAgent v2.0\n")
+        f.write(f"Analysis completed: {dt.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write("=" * 60 + "\n")
+
+    def _create_master_summary_file(
             self,
             original_context: str,
             search_results: Dict,
-            trace_data: Dict,
-            ranked_traces: List[Dict]
+            trace_analyses: Dict,
+            overall_quality: Dict,
+            parameters: Dict,
+            created_files: List[str],
+            output_prefix: str = None
     ) -> str:
-        """
-        Generate 2-3 sentence summary.
-        """
-        logger.info("Generating concise summary...")
+        """Create a master summary file with overview of all traces."""
 
-        top_trace_info = ""
-        if ranked_traces:
-            top = ranked_traces[0]
-            top_trace_info = f"Top trace has {top['relevance_score']}% relevance."
-
-        prompt = f"""
-Write EXACTLY 2-3 sentences summarizing this banking dispute analysis.
-
-DISPUTE: {original_context[:150]}
-RESULTS: Found {len(ranked_traces)} traces from {search_results.get('total_files', 0)} log files. {top_trace_info}
-
-Write only the summary sentences. No explanations, no thinking, no additional text.
-Format: "Sentence 1. Sentence 2. Sentence 3."
-"""
-
-        try:
-            response = self.client.chat(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a banking analyst. Write ONLY 2-3 factual sentences. Do not include <think> tags or explanations. Just the summary."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-            )
-
-            summary = response["message"]["content"].strip()
-
-            # Remove any thinking tags if they appear
-            summary = self._clean_response_text(summary)
-
-            # Ensure it's concise (max 400 chars)
-            if len(summary) > 400:
-                summary = summary[:397] + "..."
-
-            return summary
-
-        except Exception as e:
-            logger.error(f"Error generating summary: {e}")
-            return f"Analyzed {len(ranked_traces)} traces from {search_results.get('total_files', 0)} log files for banking transaction dispute."
-
-    def _generate_expert_opinion_concise(
-            self,
-            original_context: str,
-            trace_data: Dict,
-            ranked_traces: List[Dict],
-            parameters: Dict
-    ) -> str:
-        """
-        Generate 2-3 sentence expert opinion.
-        """
-        logger.info("Generating concise expert opinion...")
-
-        if not ranked_traces:
-            return "Insufficient trace data for expert analysis."
-
-        top_trace = ranked_traces[0]
-
-        prompt = f"""
-As a banking expert, write EXACTLY 2-3 sentences analyzing this transaction dispute.
-
-DISPUTE: {original_context[:150]}
-FINDING: {top_trace.get('key_finding', 'Limited data available')}
-RELEVANCE: {top_trace['relevance_score']}/100
-
-Write your expert assessment in exactly 2-3 sentences. Include:
-1. Most likely cause (system issue, user error, processing delay, or unclear)
-2. Your confidence level and reasoning
-
-Format: "Sentence 1. Sentence 2. Sentence 3."
-No explanations, no thinking process, just the assessment.
-"""
-
-        try:
-            response = self.client.chat(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a senior banking expert. Write ONLY 2-3 clear sentences with your assessment. No <think> tags or explanations."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-            )
-
-            opinion = response["message"]["content"].strip()
-
-            # Remove any thinking tags if they appear
-            opinion = self._clean_response_text(opinion)
-
-            # Ensure it's concise (max 400 chars)
-            if len(opinion) > 400:
-                opinion = opinion[:397] + "..."
-
-            return opinion
-
-        except Exception as e:
-            logger.error(f"Error generating expert opinion: {e}")
-            return "Expert analysis requires manual review due to processing error."
-
-    def _determine_next_steps_concise(
-            self,
-            quality_assessment: Dict,
-            ranked_traces: List[Dict],
-            original_context: str
-    ) -> Dict:
-        """
-        Determine next steps with concise recommendations.
-        """
-        logger.info("Determining next steps (concise)...")
-
-        confidence = quality_assessment.get('overall_confidence', 0)
-        trace_count = len(ranked_traces)
-        top_relevance = ranked_traces[0]['relevance_score'] if ranked_traces else 0
-
-        # Simplified decision logic
-        if confidence >= 75 and top_relevance >= 70:
-            decision = "ANALYSIS_COMPLETE"
-            priority_actions = [
-                "Review findings with stakeholders",
-                "Document resolution steps"
-            ]
-        elif confidence >= 50 and trace_count > 0:
-            decision = "ADDITIONAL_SEARCH_RECOMMENDED"
-            priority_actions = [
-                "Search expanded time range",
-                "Include application logs"
-            ]
-        else:
-            decision = "FURTHER_INVESTIGATION_REQUIRED"
-            priority_actions = [
-                "Expand search parameters",
-                "Check system monitoring logs",
-                "Contact technical team"
-            ]
-
-        return {
-            'decision': decision,
-            'confidence_level': 'HIGH' if confidence >= 75 else 'MEDIUM' if confidence >= 50 else 'LOW',
-            'priority_actions': priority_actions[:2]  # Top 2 only
-        }
-
-    def _save_concise_analysis(self, results: Dict, output_prefix: str = None) -> str:
-        """
-        Save concise single-file analysis.
-        """
         timestamp = dt.now().strftime("%Y%m%d_%H%M%S")
-        prefix = output_prefix or f"concise_analysis_{timestamp}"
-        file_path = self.output_dir / f"{prefix}.txt"
+        prefix = output_prefix or "master_summary"
+        filename = f"{prefix}_{timestamp}.txt"
+        file_path = self.output_dir / filename
 
         try:
             with open(file_path, 'w', encoding='utf-8') as f:
                 # Header
-                f.write("BANKING LOG ANALYSIS - CONCISE REPORT\n")
-                f.write("=" * 55 + "\n")
-                f.write(f"Date: {dt.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Confidence: {results.get('confidence_score', 0)}/100\n")
-                f.write(f"Status: {results.get('next_steps', {}).get('decision', 'N/A')}\n\n")
+                f.write("MASTER ANALYSIS SUMMARY\n")
+                f.write("=" * 40 + "\n")
+                f.write(f"Generated: {dt.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Total Traces Analyzed: {len(trace_analyses)}\n")
+                f.write(f"Overall Confidence: {overall_quality.get('overall_confidence', 0)}/100\n")
+                f.write("=" * 40 + "\n\n")
 
-                # Context (first line)
-                context = results.get('original_context', '').strip()
-                context_line = context.split('.')[0] + '.' if context else 'N/A'
-                if len(context_line) > 120:
-                    context_line = context_line[:117] + "..."
-                f.write(f"DISPUTE: {context_line}\n\n")
+                # Original Context
+                f.write("ORIGINAL DISPUTE:\n")
+                f.write("-" * 17 + "\n")
+                f.write(f"{original_context}\n\n")
 
-                # Key Metrics
-                f.write("KEY METRICS:\n")
-                f.write("-" * 15 + "\n")
-                qa = results.get('quality_assessment', {})
-                f.write(f"• Data Quality: {qa.get('completeness_score', 0)}% complete, "
-                        f"{qa.get('relevance_score', 0)}% relevant, "
-                        f"{qa.get('coverage_score', 0)}% coverage\n")
-
-                traces = results.get('ranked_traces', [])
-                f.write(f"• Found {len(traces)} relevant traces")
-                if traces:
-                    f.write(f", top relevance: {traces[0]['relevance_score']}%\n")
-                else:
-                    f.write("\n")
-
-                metadata = results.get('metadata', {})
-                f.write(f"• Searched {metadata.get('total_files_searched', 0)} files, "
-                        f"{metadata.get('total_matches', 0)} matches\n\n")
-
-                # Summary
-                f.write("ANALYSIS SUMMARY:\n")
-                f.write("-" * 18 + "\n")
-                f.write(f"{results.get('summary', 'Summary not available.')}\n\n")
-
-                # Expert Opinion
-                f.write("EXPERT ASSESSMENT:\n")
-                f.write("-" * 19 + "\n")
-                f.write(f"{results.get('expert_opinion', 'Expert assessment not available.')}\n\n")
-
-                # Top Findings
-                if traces:
-                    f.write("TOP FINDINGS:\n")
-                    f.write("-" * 14 + "\n")
-                    for i, trace in enumerate(traces[:2], 1):
-                        f.write(f"{i}. {trace.get('key_finding', 'No finding')} "
-                                f"(Trace: {trace['trace_id'][:8]}..., "
-                                f"Relevance: {trace['relevance_score']}%)\n")
-                    f.write("\n")
-
-                # Next Steps
-                next_steps = results.get('next_steps', {})
-                f.write("NEXT STEPS:\n")
-                f.write("-" * 12 + "\n")
-                f.write(f"Decision: {next_steps.get('decision', 'N/A')}\n")
-                f.write(f"Confidence: {next_steps.get('confidence_level', 'N/A')}\n")
-                actions = next_steps.get('priority_actions', [])
-                for i, action in enumerate(actions, 1):
-                    f.write(f"{i}. {action}\n")
-                f.write("\n")
-
-                # Log Files
-                f.write("LOG FILES ANALYZED:\n")
+                # Summary Statistics
+                f.write("ANALYSIS STATISTICS:\n")
                 f.write("-" * 20 + "\n")
-                all_files = set()
-                for trace in traces:
-                    trace_data = trace.get('trace_data', {})
-                    files = trace_data.get('source_files', [])
-                    all_files.update(files)
-
-                if all_files:
-                    for i, file_path in enumerate(sorted(all_files), 1):
-                        display_path = self._format_file_path(file_path)
-                        f.write(f"{i}. {display_path}\n")
-                else:
-                    f.write("No source files identified\n")
+                f.write(f"Files Searched: {search_results.get('total_files', 0)}\n")
+                f.write(f"Total Matches: {search_results.get('total_matches', 0)}\n")
+                f.write(f"Unique Traces: {len(trace_analyses)}\n")
+                f.write(f"Comprehensive Files Created: {len(created_files)}\n")
                 f.write("\n")
 
-                # Search Parameters
-                params = results.get('parameters', {})
-                f.write("SEARCH CONTEXT:\n")
-                f.write("-" * 16 + "\n")
-                f.write(f"Time Frame: {params.get('time_frame', 'N/A')}\n")
-                f.write(f"Domain: {params.get('domain', 'N/A')}\n")
-                f.write(f"Accounts: {', '.join(params.get('query_keys', []))}\n")
+                # Trace Rankings
+                if trace_analyses:
+                    f.write("TRACE RANKINGS (by Relevance):\n")
+                    f.write("-" * 30 + "\n")
+
+                    # Sort traces by relevance score
+                    sorted_traces = sorted(
+                        trace_analyses.items(),
+                        key=lambda x: x[1].get('relevance_score', 0),
+                        reverse=True
+                    )
+
+                    for i, (trace_id, analysis) in enumerate(sorted_traces, 1):
+                        relevance = analysis.get('relevance_score', 0)
+                        issue = analysis.get('primary_issue', 'Unknown')
+                        confidence = analysis.get('confidence_level', 'Unknown')
+                        f.write(f"{i}. {trace_id[:20]}... ({relevance}% relevance, {issue}, {confidence} confidence)\n")
+                    f.write("\n")
+
+                # File Locations
+                f.write("COMPREHENSIVE FILES CREATED:\n")
+                f.write("-" * 30 + "\n")
+                for i, file_path in enumerate(created_files, 1):
+                    f.write(f"{i}. {Path(file_path).name}\n")
+                f.write("\n")
+
+                # Overall Assessment
+                f.write("OVERALL ASSESSMENT:\n")
+                f.write("-" * 19 + "\n")
+                status = overall_quality.get('status', 'Assessment not available')
+                f.write(f"Status: {status}\n")
+
+                gaps = overall_quality.get('key_gaps', [])
+                if gaps:
+                    f.write("Key Gaps Identified:\n")
+                    for gap in gaps:
+                        f.write(f"  • {gap}\n")
+                f.write("\n")
 
                 # Footer
-                f.write("\n" + "=" * 55 + "\n")
-                f.write(f"Analysis Model: {metadata.get('model_used', 'N/A')}\n")
+                f.write("=" * 40 + "\n")
+                f.write(f"For detailed analysis, review individual trace files above.\n")
+                f.write("=" * 40 + "\n")
 
-            logger.info(f"Concise analysis saved to: {file_path}")
+            logger.info(f"Master summary created: {file_path}")
             return str(file_path)
 
         except Exception as e:
-            logger.error(f"Error saving concise analysis: {e}")
+            logger.error(f"Error creating master summary: {e}")
             raise
 
-    def _format_file_path(self, file_path: str) -> str:
-        """Format file path for display."""
-        if len(file_path) <= 80:
-            return file_path
+    # Helper methods (keeping existing ones and adding new ones)
 
-        # Show last part of path
-        parts = file_path.split('/')
-        if len(parts) > 1:
-            return ".../" + "/".join(parts[-2:])
-        else:
-            return "..." + file_path[-77:]
+    def _assess_overall_quality(self, original_context: str, search_results: Dict, trace_data: Dict,
+                                parameters: Dict) -> Dict:
+        """Assess overall quality of the search and analysis."""
+
+        prompt = f"""
+Rate overall log search quality for banking dispute. JSON only.
+
+CONTEXT: {original_context[:150]}
+RESULTS: {search_results.get('total_files', 0)} files, {search_results.get('total_matches', 0)} matches, {len(trace_data.get('all_trace_data', {}))} traces
+
+Rate 0-100 for:
+- COMPLETENESS: Sufficient data to understand issue?
+- RELEVANCE: Data relates to the dispute?
+- COVERAGE: Transaction flow adequately covered?
+
+JSON format:
+{{
+    "completeness_score": <number>,
+    "relevance_score": <number>,
+    "coverage_score": <number>,
+    "overall_confidence": <average>,
+    "status": "<one line assessment>",
+    "key_gaps": ["<gap1>", "<gap2>"]
+}}
+"""
+
+        try:
+            response = self.client.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "Banking analyst. JSON only."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+
+            raw_response = response["message"]["content"].strip()
+            return self._safe_parse_json(raw_response, self._default_quality_assessment)
+
+        except Exception as e:
+            logger.error(f"Error in overall quality assessment: {e}")
+            return self._default_quality_assessment()
 
     def _safe_parse_json(self, raw: str, fallback_fn):
-        """Parse JSON with fallback."""
+        """Parse JSON safely with fallback."""
         text = raw.strip()
 
-        # Remove thinking tags
-        if text.lower().startswith("<think>") and text.lower().endswith("</think>"):
-            text = text[len("<think>"):-len("</think>")].strip()
+        # Remove thinking tags if present
+        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
 
-        # Extract JSON
-        match = re.search(r"\{.*\}", text, re.DOTALL)
+        # Extract JSON block
+        match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             text = match.group(0)
 
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            return fallback_fn(text)
+            if callable(fallback_fn):
+                return fallback_fn()
+            else:
+                return fallback_fn
 
-    def _parse_quality_fallback(self, text: str) -> Dict:
-        """Fallback quality assessment parser."""
-        numbers = re.findall(r'\b(\d{1,3})\b', text)
-        valid_scores = [int(n) for n in numbers if 0 <= int(n) <= 100]
-        scores = (valid_scores + [60, 60, 60])[:3]
-
+    def _default_trace_analysis(self, trace_id: str = None) -> Dict:
+        """Default trace analysis structure."""
         return {
-            "completeness_score": scores[0],
-            "relevance_score": scores[1],
-            "coverage_score": scores[2],
-            "overall_confidence": sum(scores) // 3,
-            "status": "Assessment completed from text analysis",
-            "key_gaps": ["Detailed assessment unavailable"]
+            "trace_id": trace_id or "unknown",
+            "relevance_score": 50,
+            "key_finding": "Analysis could not be completed",
+            "primary_issue": "insufficient_data",
+            "confidence_level": "LOW",
+            "critical_indicators": ["Analysis processing error"],
+            "concerns": ["Unable to complete automated analysis"],
+            "timeline_summary": "Timeline analysis not available",
+            "recommendation": "Manual review required"
         }
 
-    def _parse_ranking_fallback(self, text: str) -> Dict:
-        """Fallback ranking parser."""
-        score_match = re.search(r'(\d{1,3})', text)
-        score = int(score_match.group(1)) if score_match and 0 <= int(score_match.group(1)) <= 100 else 50
-
-        return {
-            "relevance_score": score,
-            "key_finding": "Analysis completed from text",
-            "indicators": ["Text analysis applied"],
-            "concerns": ["Detailed parsing unavailable"]
-        }
-
-    def _clean_response_text(self, text: str) -> str:
-        """
-        Clean LLM response text by removing thinking tags and extra content.
-        """
-        # Remove <think> tags and their content
-        import re
-        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
-
-        # Remove any remaining XML-like tags
-        text = re.sub(r'<[^>]+>', '', text)
-
-        # Clean up extra whitespace
-        text = ' '.join(text.split())
-
-        return text.strip()
-
-    def _get_default_quality(self) -> Dict:
-        """Default quality assessment."""
+    def _default_quality_assessment(self) -> Dict:
+        """Default quality assessment structure."""
         return {
             "completeness_score": 50,
             "relevance_score": 50,
             "coverage_score": 50,
             "overall_confidence": 50,
-            "status": "Default assessment applied",
+            "status": "Default assessment applied due to processing error",
             "key_gaps": ["Assessment processing error"]
+        }
+
+    def _create_empty_result(self) -> Dict:
+        """Create empty result structure when no data is available."""
+        return {
+            'analysis_timestamp': dt.now().isoformat(),
+            'comprehensive_files_created': [],
+            'master_summary_file': None,
+            'total_traces_analyzed': 0,
+            'confidence_score': 0,
+            'message': 'No trace data available for analysis'
         }

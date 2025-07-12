@@ -6,23 +6,31 @@ from agents.file_searcher import FileSearcher
 from tools.log_searcher import LogSearcher
 from tools.trace_id_extractor import TraceIDExtractor
 from tools.full_log_finder import FullLogFinder
-from agents.verify_agent import VerifyAgent
-
+from agents.verify_agent import VerifyAgent  # This will be the enhanced version
 
 logger = logging.getLogger(__name__)
 
 
 class Orchestrator:
-    """Runs ParametersAgent and FileSearcher to find relevant log files."""
+    """
+    Enhanced Orchestrator that creates comprehensive files containing both
+    verification analysis and complete log content for each trace.
+    """
 
     def __init__(self, client: Client, model: str, log_base_dir: str = "./data"):
         self.param_agent = ParametersAgent(client, model)
         self.file_searcher = FileSearcher(Path(log_base_dir), client, model)
         self.log_searcher = LogSearcher(context=2)  # 2 lines of context
         self.full_log_finder = FullLogFinder()
-        self.verify_agent = VerifyAgent(client, model)  # <-- Add this line
+        # Use enhanced VerifyAgent with different output directory
+        self.verify_agent = VerifyAgent(client, model, output_dir="comprehensive_analysis")
 
     def analyze(self, text: str):
+        """
+        Complete analysis pipeline that creates comprehensive files for each trace
+        containing both verification analysis and complete log content.
+        """
+
         # Step 1: Run Parameter Agent
         logger.info("Step 1: Running Parameter Agent...")
         params = self.param_agent.run(text)
@@ -101,11 +109,10 @@ class Orchestrator:
             for i, trace_id in enumerate(unique_trace_ids, 1):
                 logger.info(f"  {i}: {trace_id}")
 
-            # Step 4: Search ALL log files for each unique trace ID to compile comprehensive logs
-            logger.info(f"Step 4: Searching ALL log files for each of the {len(unique_trace_ids)} trace IDs...")
+            # Step 4: Compile comprehensive trace data for each trace ID
+            logger.info(f"Step 4: Compiling comprehensive data for each of the {len(unique_trace_ids)} trace IDs...")
 
             all_trace_data = {}
-            all_created_files = []
 
             for trace_id in unique_trace_ids:
                 logger.info(f"Compiling comprehensive logs for trace ID: {trace_id}")
@@ -162,47 +169,16 @@ class Orchestrator:
                     }
 
                     all_trace_data[trace_id] = comprehensive_trace_data
-
-                    # Create comprehensive trace file
-                    logger.info(f"Creating comprehensive trace file for {trace_id}...")
-                    import re
-                    safe_trace_id = re.sub(r'[^\w\-_]', '_', trace_id)
-                    output_dir = Path("trace_outputs")
-                    output_dir.mkdir(exist_ok=True)
-                    trace_file = output_dir / f"comprehensive_trace_{safe_trace_id}.txt"
-
-                    trace_file = self.full_log_finder.create_comprehensive_trace_file(
-                        comprehensive_trace_data, "trace_outputs"
-                    )
-
-                    all_created_files.append(str(trace_file))
-                    logger.info(f"✓ Created: {trace_file}")
-                    logger.info(f"  Total entries: {comprehensive_trace_data['total_entries']}")
+                    logger.info(f"✓ Compiled {len(combined_entries)} total entries for trace {trace_id}")
                     logger.info(f"  Source files: {', '.join([Path(f).name for f in source_files])}")
                 else:
                     logger.warning(f"No comprehensive data found for trace ID {trace_id}")
 
-            # Generate final summary
-            file_creation_result = {
-                'unique_trace_ids': unique_trace_ids,
-                'total_unique_traces': len(unique_trace_ids),
-                'files_created': all_created_files,
-                'output_directory': "trace_outputs",
-                'comprehensive_search': True,
-                'files_searched_per_trace': len(log_files),
-                'all_trace_data': all_trace_data
-            }
+            logger.info("Step 4 Complete: Comprehensive trace data compilation finished")
 
-            logger.info("Step 4 Complete: Comprehensive trace analysis finished")
-            logger.info(f"Created {len(all_created_files)} comprehensive trace files")
+            # Step 5: Create comprehensive files using Enhanced VerifyAgent
+            logger.info("Step 5: Creating comprehensive analysis files with Enhanced VerifyAgent...")
 
-            # Set trace_analysis to the first comprehensive trace for backward compatibility
-            trace_analysis = None
-            if unique_trace_ids and unique_trace_ids[0] in all_trace_data:
-                trace_analysis = all_trace_data[unique_trace_ids[0]]
-
-            # --- ONLY TEST STEP 5 ---
-            logger.info("Step 5: Running Verify Agent...")
             search_results = {
                 'files_searched': [str(lf) for lf in log_files],
                 'patterns': patterns,
@@ -213,37 +189,122 @@ class Orchestrator:
             }
 
             trace_data_for_verification = {
-                'all_trace_data': file_creation_result['all_trace_data']
+                'all_trace_data': all_trace_data
             }
 
-            logger.info(f"Verify agent will read {len(trace_data_for_verification['all_trace_data'])} trace files")
+            logger.info(f"Enhanced VerifyAgent will analyze {len(all_trace_data)} traces")
 
-            verification_results = self.verify_agent.analyze_and_verify_concise(
+            # Use the enhanced method that creates comprehensive files
+            comprehensive_results = self.verify_agent.analyze_and_create_comprehensive_files(
                 original_context=text,
                 search_results=search_results,
-                trace_data=trace_data_for_verification,  # Only file paths, no in-memory data
-                parameters=params
+                trace_data=trace_data_for_verification,
+                parameters=params,
+                output_prefix="banking_analysis"
             )
 
-            logger.info(f"Verification complete. Confidence: {verification_results['confidence_score']}/100")
-            logger.info(f"Further search needed: {verification_results['further_search_needed']['decision']}")
-            logger.info(f"Verify agent will read {len(trace_data_for_verification['all_trace_data'])} trace files")
+            logger.info("Step 5 Complete: Enhanced verification and file creation finished")
+            logger.info(
+                f"Created {len(comprehensive_results.get('comprehensive_files_created', []))} comprehensive files")
+            logger.info(f"Master summary: {comprehensive_results.get('master_summary_file', 'N/A')}")
 
-            return {
-                'parameters': params,
-                'log_files': log_files,
-                'total_files': len(log_files),
-                'search_results': search_results,
-                'file_creation_result': file_creation_result,
-                'trace_analysis': trace_analysis,
-                'verification_results': verification_results
-            }
+            # Display created files
+            created_files = comprehensive_results.get('comprehensive_files_created', [])
+            if created_files:
+                logger.info("Comprehensive files created:")
+                for i, file_path in enumerate(created_files, 1):
+                    logger.info(f"  {i}. {Path(file_path).name}")
 
-        except Exception as e:
-            logger.error(f"Error during log analysis: {e}")
+            # Final result structure
             return {
                 'parameters': params,
                 'log_files': [str(lf) for lf in log_files],
                 'total_files': len(log_files),
-                'search_error': str(e)
+                'search_results': search_results,
+                'trace_data_summary': {
+                    'unique_trace_ids': unique_trace_ids,
+                    'total_unique_traces': len(unique_trace_ids),
+                    'comprehensive_search': True,
+                    'files_searched_per_trace': len(log_files),
+                    'total_log_entries': sum(td.get('total_entries', 0) for td in all_trace_data.values())
+                },
+                'comprehensive_analysis_results': comprehensive_results,
+                'output_summary': {
+                    'comprehensive_files_created': created_files,
+                    'master_summary_file': comprehensive_results.get('master_summary_file'),
+                    'output_directory': str(self.verify_agent.output_dir),
+                    'total_traces_analyzed': comprehensive_results.get('total_traces_analyzed', 0),
+                    'overall_confidence': comprehensive_results.get('confidence_score', 0)
+                }
             }
+
+        except Exception as e:
+            logger.error(f"Error during enhanced log analysis: {e}")
+            return {
+                'parameters': params,
+                'log_files': [str(lf) for lf in log_files],
+                'total_files': len(log_files),
+                'analysis_error': str(e),
+                'message': 'Analysis failed due to processing error'
+            }
+
+    def get_analysis_summary(self, analysis_result: dict) -> str:
+        """
+        Generate a human-readable summary of the analysis results.
+        """
+
+        if 'analysis_error' in analysis_result:
+            return f"Analysis failed: {analysis_result['analysis_error']}"
+
+        if not analysis_result.get('comprehensive_analysis_results'):
+            return "No comprehensive analysis results available"
+
+        comprehensive_results = analysis_result['comprehensive_analysis_results']
+        output_summary = analysis_result.get('output_summary', {})
+
+        summary_lines = [
+            "BANKING LOG ANALYSIS SUMMARY",
+            "=" * 35,
+            f"Traces Analyzed: {comprehensive_results.get('total_traces_analyzed', 0)}",
+            f"Overall Confidence: {comprehensive_results.get('confidence_score', 0)}/100",
+            f"Files Created: {len(output_summary.get('comprehensive_files_created', []))}",
+            f"Output Directory: {output_summary.get('output_directory', 'N/A')}",
+            "",
+            "FILES CREATED:",
+            "-" * 15
+        ]
+
+        created_files = output_summary.get('comprehensive_files_created', [])
+        for i, file_path in enumerate(created_files, 1):
+            summary_lines.append(f"{i}. {Path(file_path).name}")
+
+        if output_summary.get('master_summary_file'):
+            summary_lines.append(f"Master Summary: {Path(output_summary['master_summary_file']).name}")
+
+        summary_lines.extend([
+            "",
+            "Each comprehensive file contains:",
+            "• Executive summary and analysis",
+            "• Original dispute context",
+            "• Detailed findings and recommendations",
+            "• Complete chronological timeline",
+            "• Full original log entries in XML format",
+            "• Technical analysis details"
+        ])
+
+        return "\n".join(summary_lines)
+
+    def list_output_files(self) -> list:
+        """
+        List all files in the comprehensive analysis output directory.
+        """
+        try:
+            output_dir = self.verify_agent.output_dir
+            if output_dir.exists():
+                files = list(output_dir.glob("*.txt"))
+                return [str(f) for f in sorted(files)]
+            else:
+                return []
+        except Exception as e:
+            logger.error(f"Error listing output files: {e}")
+            return []

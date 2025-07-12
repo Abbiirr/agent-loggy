@@ -57,7 +57,7 @@ class ParametersAgent:
         if forced:
             existing = [d.strip() for d in params.get("domain", "").split(",") if d.strip()]
             params["domain"] = ", ".join(dict.fromkeys(forced + existing))
-        print(params)
+
         return params
 
     def _fallback(self, text: str) -> dict:

@@ -7,6 +7,7 @@ from tools.log_searcher import LogSearcher
 from tools.trace_id_extractor import TraceIDExtractor
 from tools.full_log_finder import FullLogFinder
 from agents.verify_agent import VerifyAgent  # This will be the enhanced version
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,14 @@ class Orchestrator:
         # Step 1: Run Parameter Agent
         logger.info("Step 1: Running Parameter Agent...")
         params = self.param_agent.run(text)
+        # print(json.dumps(params, indent=2, ensure_ascii=False))
         logger.info(f"Extracted parameters: {params}")
 
         # Step 2: Run File Searcher
         logger.info("Step 2: Running File Searcher...")
         log_files = self.file_searcher.find_and_verify(params)
-        print("Log files found:", log_files)
+        # print("\n")
+        # print("Log files found:\n", json.dumps([str(f) for f in log_files], indent=2, ensure_ascii=False))
 
         if not log_files:
             logger.warning("No log files found by File Searcher")

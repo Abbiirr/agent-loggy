@@ -41,4 +41,4 @@ if __name__ == "__main__":
     )
 
     params = orchestrator.analyze(text)
-    print("Extracted parameters:\n", params)
+    # print("Extracted parameters:\n", params)

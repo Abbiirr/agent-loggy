@@ -526,3 +526,84 @@ class FullLogFinder:
             'files_created': created_files,
             'output_directory': output_dir
         }
+
+    def _write_comprehensive_trace_file(self, file_handle, trace_data):
+        """
+        Write a comprehensive trace file that includes entries from multiple log files.
+        """
+        f = file_handle
+
+        # Header Section
+        f.write(f"COMPREHENSIVE TRACE ANALYSIS\n")
+        f.write(f"TRACE ID: {trace_data['trace_id']}\n")
+        f.write(f"TOTAL ENTRIES: {trace_data['total_entries']}\n")
+        f.write(f"FILES SEARCHED: {trace_data['files_searched']}\n")
+        f.write(f"FILES WITH ENTRIES: {trace_data['files_with_entries']}\n")
+        f.write(f"SOURCE FILES: {', '.join([Path(f).name for f in trace_data['source_files']])}\n")
+        f.write("=" * 80 + "\n\n")
+
+        # Timeline Summary across all files
+        f.write("COMPREHENSIVE TIMELINE (All Files):\n")
+        f.write("-" * 50 + "\n")
+        for step in trace_data['timeline']:
+            source_file = step.get('source_file', 'Unknown')
+            f.write(
+                f"{step['sequence']:2d}. {step['timestamp']} - {step['operation']} [{step['level']}] ({Path(source_file).name if source_file != 'Unknown' else 'Unknown'})\n")
+        f.write("\n" + "=" * 80 + "\n\n")
+
+        # Group entries by source file
+        f.write("LOG ENTRIES BY SOURCE FILE:\n")
+        f.write("-" * 50 + "\n\n")
+
+        # Group entries by source file
+        entries_by_file = {}
+        for entry in trace_data['log_entries']:
+            source_file = entry.get('source_file', 'Unknown')
+            if source_file not in entries_by_file:
+                entries_by_file[source_file] = []
+            entries_by_file[source_file].append(entry)
+
+        # Write entries for each file
+        for source_file, entries in entries_by_file.items():
+            f.write(f"SOURCE FILE: {Path(source_file).name}\n")
+            f.write(f"ENTRIES: {len(entries)}\n")
+            f.write("-" * 30 + "\n")
+
+            for i, entry in enumerate(entries, 1):
+                f.write(f"ENTRY {i}:\n")
+                if 'original_xml' in entry:
+                    f.write(entry['original_xml'])
+                elif 'raw_content' in entry:
+                    f.write(entry['raw_content'])
+                else:
+                    f.write("<!-- Original XML not available -->\n")
+                f.write("\n" + "-" * 40 + "\n\n")
+
+            f.write("\n" + "=" * 60 + "\n\n")
+
+    def create_comprehensive_trace_file(
+            self,
+            trace_data: Dict,
+            output_dir: str = "trace_outputs"
+    ) -> str:
+        """
+        Create a comprehensive trace file from compiled trace data.
+
+        Args:
+            trace_data: Comprehensive trace data dictionary
+            output_dir: Directory to save the trace file
+
+        Returns:
+            Path to the created file
+        """
+        output_path = Path(output_dir)
+        output_path.mkdir(exist_ok=True)
+
+        trace_id = trace_data['trace_id']
+        safe_trace_id = re.sub(r'[^\w\-_]', '_', trace_id)
+        trace_file = output_path / f"comprehensive_trace_{safe_trace_id}.txt"
+
+        with open(trace_file, 'w', encoding='utf-8') as f:
+            self._write_comprehensive_trace_file(f, trace_data)
+
+        return str(trace_file)

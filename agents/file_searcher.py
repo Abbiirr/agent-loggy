@@ -248,9 +248,9 @@ class FileSearcher:
             content = resp["message"]["content"].strip().upper()
 
             # Debug the actual content character by character
-            logger.info(f"LLM raw response: '{resp['message']['content']}'")
-            logger.info(f"After strip & upper: '{content}'")
-            logger.info(f"Last 5 chars: '{content[-5:]}'")
+            # logger.info(f"LLM raw response: '{resp['message']['content']}'")
+            # logger.info(f"After strip & upper: '{content}'")
+            # logger.info(f"Last 5 chars: '{content[-5:]}'")
             logger.info(f"Contains 'YES': {'YES' in content}")
 
             # Fix: Use 'in' operator instead of startswith

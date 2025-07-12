@@ -225,45 +225,45 @@ class FileSearcher:
         """
         Use LLM to confirm if the file likely contains relevant logs based on filename only.
         """
-        logger.info(f"Starting LLM verification for {path.name}")
+        # logger.info(f"Starting LLM verification for {path.name}")
+        #
+        # # Simple prompt based only on filename with clear date format explanation
+        # prompt = (
+        #     f"We are searching for logs with these parameters:\n"
+        #     f"- Time frame: {params.get('time_frame')} (DD.MM.YYYY format)\n"
+        #     f"- Domain: {params.get('domain')}\n"
+        #     f"- Query keys: {params.get('query_keys')}\n\n"
+        #     f"Filename: {path.name}\n\n"
+        #     f"Note: In the filename, the date appears as YYYY-MM-DD format.\n"
+        #     f"Example: '11.07.2025' in DD.MM.YYYY format corresponds to '2025-07-11' in the filename.\n\n"
+        #     f"Question: Based ONLY on the filename, does this file likely contain logs for the specified time frame?\n"
+        #     f"Reply with YES or NO only."
+        # )
+        #
+        # try:
+        #     resp = self.client.chat(
+        #         model=self.model,
+        #         messages=[{"role": "user", "content": prompt}],
+        #     )
+        #     content = resp["message"]["content"].strip().upper()
+        #
+        #     # Debug the actual content character by character
+        #     # logger.info(f"LLM raw response: '{resp['message']['content']}'")
+        #     # logger.info(f"After strip & upper: '{content}'")
+        #     # logger.info(f"Last 5 chars: '{content[-5:]}'")
+        #     logger.info(f"Contains 'YES': {'YES' in content}")
+        #
+        #     # Fix: Use 'in' operator instead of startswith
+        #     result = 'YES' in content
+        #     if result:
+        #         logger.info(f"✓ LLM verification PASSED for {path.name}")
+        #     else:
+        #         logger.info(f"✗ LLM verification FAILED for {path.name}")
 
-        # Simple prompt based only on filename with clear date format explanation
-        prompt = (
-            f"We are searching for logs with these parameters:\n"
-            f"- Time frame: {params.get('time_frame')} (DD.MM.YYYY format)\n"
-            f"- Domain: {params.get('domain')}\n"
-            f"- Query keys: {params.get('query_keys')}\n\n"
-            f"Filename: {path.name}\n\n"
-            f"Note: In the filename, the date appears as YYYY-MM-DD format.\n"
-            f"Example: '11.07.2025' in DD.MM.YYYY format corresponds to '2025-07-11' in the filename.\n\n"
-            f"Question: Based ONLY on the filename, does this file likely contain logs for the specified time frame?\n"
-            f"Reply with YES or NO only."
-        )
-
-        try:
-            resp = self.client.chat(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            content = resp["message"]["content"].strip().upper()
-
-            # Debug the actual content character by character
-            # logger.info(f"LLM raw response: '{resp['message']['content']}'")
-            # logger.info(f"After strip & upper: '{content}'")
-            # logger.info(f"Last 5 chars: '{content[-5:]}'")
-            logger.info(f"Contains 'YES': {'YES' in content}")
-
-            # Fix: Use 'in' operator instead of startswith
-            result = 'YES' in content
-            if result:
-                logger.info(f"✓ LLM verification PASSED for {path.name}")
-            else:
-                logger.info(f"✗ LLM verification FAILED for {path.name}")
-
-            return result
-        except Exception as e:
-            logger.error(f"Error during LLM verification: {e}")
-            return False
+        return True
+        # except Exception as e:
+        #     logger.error(f"Error during LLM verification: {e}")
+        #     return False
 
     def _parse_time_frame(self, time_frame: str) -> str:
         """

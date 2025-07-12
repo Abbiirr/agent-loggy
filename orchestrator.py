@@ -1,8 +1,10 @@
 import logging
+import re
 from pathlib import Path
 from ollama import Client
 from agents.parameter_agent import ParametersAgent
 from agents.file_searcher import FileSearcher
+from agents.verify_agent import VerifyAgent
 from tools.log_searcher import LogSearcher
 from tools.trace_id_extractor import TraceIDExtractor
 from tools.full_log_finder import FullLogFinder
@@ -18,6 +20,7 @@ class Orchestrator:
         self.file_searcher = FileSearcher(Path(log_base_dir), client, model)
         self.log_searcher = LogSearcher(context=2)  # 2 lines of context
         self.full_log_finder = FullLogFinder()
+        self.verify_agent = VerifyAgent(client, model)
 
     def analyze(self, text: str):
         # Step 1: Run Parameter Agent
@@ -160,14 +163,8 @@ class Orchestrator:
 
                     all_trace_data[trace_id] = comprehensive_trace_data
 
-                    # Create comprehensive trace file
+                    # Create comprehensive trace file using FullLogFinder
                     logger.info(f"Creating comprehensive trace file for {trace_id}...")
-                    import re
-                    safe_trace_id = re.sub(r'[^\w\-_]', '_', trace_id)
-                    output_dir = Path("trace_outputs")
-                    output_dir.mkdir(exist_ok=True)
-                    trace_file = output_dir / f"comprehensive_trace_{safe_trace_id}.txt"
-
                     trace_file = self.full_log_finder.create_comprehensive_trace_file(
                         comprehensive_trace_data, "trace_outputs"
                     )
@@ -179,7 +176,17 @@ class Orchestrator:
                 else:
                     logger.warning(f"No comprehensive data found for trace ID {trace_id}")
 
-            # Generate final summary
+            # Generate final summary for search results
+            search_results = {
+                'files_searched': [str(lf) for lf in log_files],
+                'patterns': patterns,
+                'matches': [r['match'] for r in all_trace_results[:10]],
+                'total_matches': len(all_trace_results),
+                'trace_ids': all_trace_results[:10],
+                'unique_trace_ids': unique_trace_ids,
+                'total_files': len(log_files)
+            }
+
             file_creation_result = {
                 'unique_trace_ids': unique_trace_ids,
                 'total_unique_traces': len(unique_trace_ids),
@@ -198,20 +205,28 @@ class Orchestrator:
             if unique_trace_ids and unique_trace_ids[0] in all_trace_data:
                 trace_analysis = all_trace_data[unique_trace_ids[0]]
 
+            # Step 5: Verify and Analyze Results
+            logger.info("Step 5: Running Verify Agent...")
+
+            verification_results = self.verify_agent.analyze_and_verify(
+                original_context=text,  # Original user input
+                search_results=search_results,
+                trace_data={'all_trace_data': all_trace_data},
+                parameters=params
+            )
+
+            logger.info(f"Verification complete. Confidence: {verification_results['confidence_score']}/100")
+            logger.info(f"Further search needed: {verification_results['further_search_needed']['decision']}")
+
+            # Return comprehensive results
             return {
                 'parameters': params,
                 'log_files': [str(lf) for lf in log_files],
                 'total_files': len(log_files),
-                'search_results': {
-                    'files_searched': [str(lf) for lf in log_files],
-                    'patterns': patterns,
-                    'matches': [r['match'] for r in all_trace_results[:10]],
-                    'total_matches': len(all_trace_results),
-                    'trace_ids': all_trace_results[:10],
-                    'unique_trace_ids': unique_trace_ids,
-                    'trace_analysis': trace_analysis,
-                    'file_creation_result': file_creation_result
-                }
+                'search_results': search_results,
+                'file_creation_result': file_creation_result,
+                'trace_analysis': trace_analysis,
+                'verification_results': verification_results
             }
 
         except Exception as e:

@@ -12,13 +12,13 @@ logger = logging.getLogger(__name__)
 
 class VerifyAgent:
     """
-    Verifies log quality, ranks relevance, and provides analysis opinion.
+    Verifies log quality, ranks relevance, and provides concise analysis opinion.
 
     Responsibilities:
     1. Check if found logs are sufficient or need further searching
     2. Rank log outputs by relevance to the original context
-    3. Provide summary of findings
-    4. Give opinion on what likely happened based on the logs
+    3. Provide concise summary of findings
+    4. Give concise opinion on what likely happened based on the logs
     """
 
     def __init__(self, client: Client, model: str, output_dir: str = "verification_output"):
@@ -28,69 +28,70 @@ class VerifyAgent:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"VerifyAgent initialized with model: {model}, output directory: {self.output_dir}")
 
-    def analyze_and_verify(
+    def analyze_and_verify_concise(
             self,
             original_context: str,
             search_results: Dict,
             trace_data: Dict,
             parameters: Dict,
-            save_output: bool = True,
             output_prefix: str = None
     ) -> Dict:
         """
-        Complete verification and analysis of log search results.
+        Complete verification and analysis with concise single-file output.
 
         Args:
             original_context: The original user query/context
             search_results: Results from log searching
             trace_data: Comprehensive trace data from all log files
             parameters: Extracted parameters from original context
-            save_output: Whether to save results to files (default: True)
-            output_prefix: Custom prefix for output files (default: timestamp)
+            output_prefix: Custom prefix for output file
 
         Returns:
-            Dictionary with verification results, rankings, summary, and opinion
+            Dictionary with concise analysis results and file path
         """
-        logger.info("Starting comprehensive log verification and analysis...")
+        logger.info("Starting concise log verification and analysis...")
 
-        # Step 1: Assess log quality and completeness
-        quality_assessment = self._assess_log_quality(
+        # Step 1: Assess log quality (concise)
+        quality_assessment = self._assess_log_quality_concise(
             original_context, search_results, trace_data, parameters
         )
 
-        # Step 2: Rank trace logs by relevance
-        ranked_traces = self._rank_traces_by_relevance(
+        # Step 2: Rank top 3 traces by relevance (concise)
+        ranked_traces = self._rank_traces_concise(
             original_context, trace_data, parameters
         )
 
-        # Step 3: Generate comprehensive summary
-        summary = self._generate_summary(
+        # Step 3: Generate concise summary
+        summary = self._generate_summary_concise(
             original_context, search_results, trace_data, ranked_traces
         )
 
-        # Step 4: Provide expert opinion on what happened
-        expert_opinion = self._generate_expert_opinion(
+        # Step 4: Provide concise expert opinion
+        expert_opinion = self._generate_expert_opinion_concise(
             original_context, trace_data, ranked_traces, parameters
         )
 
-        # Step 5: Determine if further searching is needed
-        further_search_needed = self._determine_further_search_need(
+        # Step 5: Determine next steps
+        next_steps = self._determine_next_steps_concise(
             quality_assessment, ranked_traces, original_context
         )
 
-        # Compile final results
+        # Compile concise results
         results = {
-            'verification_status': 'COMPLETE',
             'analysis_timestamp': dt.now().isoformat(),
             'original_context': original_context,
             'parameters': parameters,
             'quality_assessment': quality_assessment,
-            'ranked_traces': ranked_traces,
+            'ranked_traces': ranked_traces[:3],  # Top 3 only
             'summary': summary,
             'expert_opinion': expert_opinion,
-            'further_search_needed': further_search_needed,
+            'next_steps': next_steps,
             'confidence_score': quality_assessment.get('overall_confidence', 0),
-            'recommendations': self._generate_recommendations(quality_assessment, further_search_needed),
+            'further_search_needed': {
+                'decision': next_steps.get('decision', 'FURTHER_INVESTIGATION_REQUIRED'),
+                'confidence_level': next_steps.get('confidence_level', 'LOW'),
+                'priority_actions': next_steps.get('priority_actions', [])
+            },
             'metadata': {
                 'total_files_searched': search_results.get('total_files', 0),
                 'total_matches': search_results.get('total_matches', 0),
@@ -99,13 +100,15 @@ class VerifyAgent:
             }
         }
 
-        # Save output to files if requested
-        if save_output:
-            self._save_analysis_results(results, output_prefix)
+        # Save concise output and add file path to results
+        output_path = self._save_concise_analysis(results, output_prefix)
+        results['output_file_path'] = output_path
 
+        logger.info(f"Concise analysis completed. Confidence: {results['confidence_score']}/100")
+        logger.info(f"Output saved to: {output_path}")
         return results
 
-    def _assess_log_quality(
+    def _assess_log_quality_concise(
             self,
             original_context: str,
             search_results: Dict,
@@ -113,47 +116,29 @@ class VerifyAgent:
             parameters: Dict
     ) -> Dict:
         """
-        Assess the quality and completeness of found logs.
+        Assess log quality with concise output.
         """
-        logger.info("Assessing log quality and completeness...")
+        logger.info("Assessing log quality (concise)...")
 
         prompt = f"""
-You are an expert log analyst. Assess the quality and completeness of the log search results.
+Rate log search quality for banking dispute analysis. Answer with JSON only.
 
-ORIGINAL CONTEXT:
-{original_context}
+CONTEXT: {original_context[:150]}
+SEARCH: {search_results.get('total_files', 0)} files, {search_results.get('total_matches', 0)} matches, {len(trace_data.get('all_trace_data', {}))} traces
 
-SEARCH PARAMETERS:
-- Time Frame: {parameters.get('time_frame', 'Not specified')}
-- Domain: {parameters.get('domain', 'Not specified')}
-- Query Keys: {parameters.get('query_keys', 'Not specified')}
+Rate 0-100:
+COMPLETENESS: Enough data to understand the issue?
+RELEVANCE: Data relates to the dispute?
+COVERAGE: Transaction flow covered?
 
-SEARCH RESULTS SUMMARY:
-- Total log files searched: {search_results.get('total_files', 0)}
-- Files with matches: {len(search_results.get('log_files', []))}
-- Total matches found: {search_results.get('total_matches', 0)}
-- Unique trace IDs found: {len(trace_data.get('all_trace_data', {}))}
-
-TRACE DATA OVERVIEW:
-{self._format_trace_overview(trace_data)}
-
-Please assess the log quality on these dimensions:
-
-1. COMPLETENESS (0-100): Do we have enough log data to understand what happened?
-2. RELEVANCE (0-100): How relevant are the found logs to the original query?
-3. COVERAGE (0-100): Do logs cover the expected transaction flow?
-4. CLARITY (0-100): Are the logs clear enough to draw conclusions?
-
-RESPOND WITH VALID JSON ONLY. Calculate the overall_confidence as a number (not a formula):
+JSON format only:
 {{
     "completeness_score": <number>,
     "relevance_score": <number>,
     "coverage_score": <number>,
-    "clarity_score": <number>,
-    "overall_confidence": <calculated average number>,
-    "quality_summary": "<brief summary>",
-    "missing_elements": ["<missing element 1>", "<missing element 2>"],
-    "strengths": ["<strength 1>", "<strength 2>"]
+    "overall_confidence": <average of above 3>,
+    "status": "<one line assessment>",
+    "key_gaps": ["<gap1>", "<gap2>"]
 }}
 """
 
@@ -163,7 +148,7 @@ RESPOND WITH VALID JSON ONLY. Calculate the overall_confidence as a number (not 
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert log analyst. You MUST respond with valid JSON only. Do not include any text before or after the JSON. Your response should start with { and end with }."
+                        "content": "Banking log analyst. Respond with valid JSON only. No text before or after JSON."
                     },
                     {
                         "role": "user",
@@ -171,36 +156,26 @@ RESPOND WITH VALID JSON ONLY. Calculate the overall_confidence as a number (not 
                     }
                 ]
             )
-            raw = response["message"]["content"]
-            logger.info(f"Raw LLM response: {raw!r}")
 
-            assessment = self._safe_parse_json(raw, self._parse_quality_assessment_from_text)
-            logger.info(f"Quality assessment complete. Overall confidence: {assessment.get('overall_confidence', 0)}")
+            raw_response = response["message"]["content"].strip()
+            assessment = self._safe_parse_json(raw_response, self._parse_quality_fallback)
+            logger.info(f"Quality assessment: {assessment.get('overall_confidence', 0)}/100")
             return assessment
 
         except Exception as e:
             logger.error(f"Error in quality assessment: {e}")
-            return {
-                "completeness_score": 50,
-                "relevance_score": 50,
-                "coverage_score": 50,
-                "clarity_score": 50,
-                "overall_confidence": 50,
-                "quality_summary": "Assessment failed - manual review needed",
-                "missing_elements": ["Assessment error occurred"],
-                "strengths": ["Logs were successfully retrieved"]
-            }
+            return self._get_default_quality()
 
-    def _rank_traces_by_relevance(
+    def _rank_traces_concise(
             self,
             original_context: str,
             trace_data: Dict,
             parameters: Dict
     ) -> List[Dict]:
         """
-        Rank trace logs by relevance to the original context.
+        Rank top 3 traces by relevance with concise output.
         """
-        logger.info("Ranking traces by relevance...")
+        logger.info("Ranking traces (concise)...")
 
         all_trace_data = trace_data.get('all_trace_data', {})
         if not all_trace_data:
@@ -208,38 +183,24 @@ RESPOND WITH VALID JSON ONLY. Calculate the overall_confidence as a number (not 
 
         ranked_traces = []
 
-        for trace_id, data in all_trace_data.items():
-            # Create trace summary for ranking
-            trace_summary = self._create_trace_summary(trace_id, data)
-
+        for trace_id, data in list(all_trace_data.items())[:5]:  # Limit to top 5 for processing
             prompt = f"""
-You are an expert log analyst. Rank this trace's relevance to the original query.
+Rate trace relevance for banking dispute. JSON only.
 
-ORIGINAL CONTEXT:
-{original_context}
+DISPUTE: {original_context[:120]}
+ACCOUNTS: {parameters.get('query_keys', [])}
+DATE: {parameters.get('time_frame', '')}
 
-SEARCH PARAMETERS:
-- Query Keys: {parameters.get('query_keys', [])}
-- Domain: {parameters.get('domain', '')}
-- Time Frame: {parameters.get('time_frame', '')}
+TRACE: {trace_id} - {data.get('total_entries', 0)} entries, {len(data.get('timeline', []))} events
 
-TRACE SUMMARY:
-Trace ID: {trace_id}
-Total Entries: {data.get('total_entries', 0)}
-Source Files: {', '.join([Path(f).name for f in data.get('source_files', [])])}
-Timeline Length: {len(data.get('timeline', []))}
+Rate relevance 0-100 and identify key finding.
 
-FIRST FEW TIMELINE ENTRIES:
-{self._format_timeline_snippet(data.get('timeline', [])[:5])}
-
-Rate this trace's relevance (0-100) and provide reasoning.
-
-RESPOND WITH VALID JSON ONLY:
+JSON only:
 {{
-    "relevance_score": <number 0-100>,
-    "reasoning": "<explanation>",
-    "key_indicators": ["<indicator 1>", "<indicator 2>"],
-    "concerns": ["<concern 1>", "<concern 2>"]
+    "relevance_score": <number>,
+    "key_finding": "<one sentence finding>",
+    "indicators": ["<indicator1>", "<indicator2>"],
+    "concerns": ["<concern1>", "<concern2>"]
 }}
 """
 
@@ -249,7 +210,7 @@ RESPOND WITH VALID JSON ONLY:
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are an expert log analyst. You MUST respond with valid JSON only. Do not include any text before or after the JSON. Your response should start with { and end with }."
+                            "content": "Banking log analyst. JSON only. No explanations."
                         },
                         {
                             "role": "user",
@@ -257,20 +218,17 @@ RESPOND WITH VALID JSON ONLY:
                         }
                     ]
                 )
-                raw = response["message"]["content"]
-                logger.info(f"Raw LLM response: {raw!r}")
 
-                import json
-                ranking = self._safe_parse_json(raw, self._parse_quality_assessment_from_text)
+                raw_response = response["message"]["content"].strip()
+                ranking = self._safe_parse_json(raw_response, self._parse_ranking_fallback)
 
                 ranked_traces.append({
                     'trace_id': trace_id,
                     'trace_data': data,
-                    'relevance_score': ranking.get('relevance_score', 0),
-                    'reasoning': ranking.get('reasoning', ''),
-                    'key_indicators': ranking.get('key_indicators', []),
-                    'concerns': ranking.get('concerns', []),
-                    'trace_summary': trace_summary
+                    'relevance_score': ranking.get('relevance_score', 50),
+                    'key_finding': ranking.get('key_finding', 'No specific finding'),
+                    'indicators': ranking.get('indicators', []),
+                    'concerns': ranking.get('concerns', [])
                 })
 
             except Exception as e:
@@ -278,20 +236,17 @@ RESPOND WITH VALID JSON ONLY:
                 ranked_traces.append({
                     'trace_id': trace_id,
                     'trace_data': data,
-                    'relevance_score': 50,
-                    'reasoning': 'Ranking failed - manual review needed',
-                    'key_indicators': [],
-                    'concerns': ['Ranking error occurred'],
-                    'trace_summary': trace_summary
+                    'relevance_score': 40,
+                    'key_finding': 'Ranking failed - manual review needed',
+                    'indicators': [],
+                    'concerns': ['Analysis error']
                 })
 
-        # Sort by relevance score (highest first)
+        # Sort by relevance (highest first) and return top 3
         ranked_traces.sort(key=lambda x: x['relevance_score'], reverse=True)
+        return ranked_traces[:3]
 
-        logger.info(f"Ranked {len(ranked_traces)} traces by relevance")
-        return ranked_traces
-
-    def _generate_summary(
+    def _generate_summary_concise(
             self,
             original_context: str,
             search_results: Dict,
@@ -299,31 +254,23 @@ RESPOND WITH VALID JSON ONLY:
             ranked_traces: List[Dict]
     ) -> str:
         """
-        Generate a comprehensive summary of findings.
+        Generate 2-3 sentence summary.
         """
-        logger.info("Generating comprehensive summary...")
+        logger.info("Generating concise summary...")
+
+        top_trace_info = ""
+        if ranked_traces:
+            top = ranked_traces[0]
+            top_trace_info = f"Top trace has {top['relevance_score']}% relevance."
 
         prompt = f"""
-You are an expert log analyst. Provide a comprehensive summary of the log analysis findings.
+Write EXACTLY 2-3 sentences summarizing this banking dispute analysis.
 
-ORIGINAL CONTEXT:
-{original_context}
+DISPUTE: {original_context[:150]}
+RESULTS: Found {len(ranked_traces)} traces from {search_results.get('total_files', 0)} log files. {top_trace_info}
 
-SEARCH RESULTS:
-- Files searched: {search_results.get('total_files', 0)}
-- Total matches: {search_results.get('total_matches', 0)}
-- Unique traces found: {len(ranked_traces)}
-
-TOP RANKED TRACES:
-{self._format_top_traces_summary(ranked_traces[:3])}
-
-Provide a clear, professional summary covering:
-1. What was searched for
-2. What was found
-3. Key patterns or issues identified
-4. Overall assessment
-
-Keep it concise but comprehensive (3-5 paragraphs).
+Write only the summary sentences. No explanations, no thinking, no additional text.
+Format: "Sentence 1. Sentence 2. Sentence 3."
 """
 
         try:
@@ -332,7 +279,7 @@ Keep it concise but comprehensive (3-5 paragraphs).
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert log analyst. Provide a clear, comprehensive summary. Be concise but thorough."
+                        "content": "You are a banking analyst. Write ONLY 2-3 factual sentences. Do not include <think> tags or explanations. Just the summary."
                     },
                     {
                         "role": "user",
@@ -342,14 +289,21 @@ Keep it concise but comprehensive (3-5 paragraphs).
             )
 
             summary = response["message"]["content"].strip()
-            logger.info("Summary generated successfully")
+
+            # Remove any thinking tags if they appear
+            summary = self._clean_response_text(summary)
+
+            # Ensure it's concise (max 400 chars)
+            if len(summary) > 400:
+                summary = summary[:397] + "..."
+
             return summary
 
         except Exception as e:
             logger.error(f"Error generating summary: {e}")
-            return "Summary generation failed - manual review of logs recommended."
+            return f"Analyzed {len(ranked_traces)} traces from {search_results.get('total_files', 0)} log files for banking transaction dispute."
 
-    def _generate_expert_opinion(
+    def _generate_expert_opinion_concise(
             self,
             original_context: str,
             trace_data: Dict,
@@ -357,44 +311,28 @@ Keep it concise but comprehensive (3-5 paragraphs).
             parameters: Dict
     ) -> str:
         """
-        Generate expert opinion on what likely happened based on the logs.
+        Generate 2-3 sentence expert opinion.
         """
-        logger.info("Generating expert opinion...")
+        logger.info("Generating concise expert opinion...")
 
         if not ranked_traces:
-            return "Insufficient data to form expert opinion - no relevant traces found."
+            return "Insufficient trace data for expert analysis."
 
-        # Focus on the most relevant trace
         top_trace = ranked_traces[0]
 
         prompt = f"""
-You are a senior banking systems expert and log analyst. Based on the log analysis, provide your expert opinion on what likely happened.
+As a banking expert, write EXACTLY 2-3 sentences analyzing this transaction dispute.
 
-ORIGINAL CONTEXT:
-{original_context}
+DISPUTE: {original_context[:150]}
+FINDING: {top_trace.get('key_finding', 'Limited data available')}
+RELEVANCE: {top_trace['relevance_score']}/100
 
-PARAMETERS:
-- Time Frame: {parameters.get('time_frame', '')}
-- Domain: {parameters.get('domain', '')}
-- Account Numbers: {parameters.get('query_keys', [])}
+Write your expert assessment in exactly 2-3 sentences. Include:
+1. Most likely cause (system issue, user error, processing delay, or unclear)
+2. Your confidence level and reasoning
 
-MOST RELEVANT TRACE ANALYSIS:
-Trace ID: {top_trace['trace_id']}
-Relevance Score: {top_trace['relevance_score']}/100
-Key Indicators: {', '.join(top_trace['key_indicators'])}
-Timeline: {len(top_trace['trace_data'].get('timeline', []))} events
-Source Files: {', '.join([Path(f).name for f in top_trace['trace_data'].get('source_files', [])])}
-
-TIMELINE ANALYSIS:
-{self._format_detailed_timeline(top_trace['trace_data'].get('timeline', []))}
-
-As a banking systems expert, provide your professional opinion on:
-1. What most likely happened in this transaction
-2. Whether this appears to be a system issue, user error, or normal processing
-3. Potential root causes based on the log patterns
-4. Risk assessment and impact
-
-Be specific and technical where appropriate, but also provide clear conclusions.
+Format: "Sentence 1. Sentence 2. Sentence 3."
+No explanations, no thinking process, just the assessment.
 """
 
         try:
@@ -403,7 +341,7 @@ Be specific and technical where appropriate, but also provide clear conclusions.
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a senior banking systems expert and log analyst. Provide detailed, technical analysis with clear conclusions. Be specific about system behavior and potential issues."
+                        "content": "You are a senior banking expert. Write ONLY 2-3 clear sentences with your assessment. No <think> tags or explanations."
                     },
                     {
                         "role": "user",
@@ -413,649 +351,252 @@ Be specific and technical where appropriate, but also provide clear conclusions.
             )
 
             opinion = response["message"]["content"].strip()
-            logger.info("Expert opinion generated successfully")
+
+            # Remove any thinking tags if they appear
+            opinion = self._clean_response_text(opinion)
+
+            # Ensure it's concise (max 400 chars)
+            if len(opinion) > 400:
+                opinion = opinion[:397] + "..."
+
             return opinion
 
         except Exception as e:
             logger.error(f"Error generating expert opinion: {e}")
-            return "Expert opinion generation failed - manual analysis by banking systems expert recommended."
+            return "Expert analysis requires manual review due to processing error."
 
-    def _determine_further_search_need(
+    def _determine_next_steps_concise(
             self,
             quality_assessment: Dict,
             ranked_traces: List[Dict],
             original_context: str
     ) -> Dict:
         """
-        Determine if further searching is needed based on quality and findings.
+        Determine next steps with concise recommendations.
         """
-        logger.info("Determining need for further searching...")
+        logger.info("Determining next steps (concise)...")
 
         confidence = quality_assessment.get('overall_confidence', 0)
         trace_count = len(ranked_traces)
         top_relevance = ranked_traces[0]['relevance_score'] if ranked_traces else 0
 
-        # Decision logic
-        if confidence >= 80 and trace_count > 0 and top_relevance >= 70:
-            decision = "NO_FURTHER_SEARCH"
-            reason = "High confidence in findings with relevant traces"
-        elif confidence >= 60 and trace_count > 0:
-            decision = "OPTIONAL_SEARCH"
-            reason = "Moderate confidence - additional search may provide more clarity"
+        # Simplified decision logic
+        if confidence >= 75 and top_relevance >= 70:
+            decision = "ANALYSIS_COMPLETE"
+            priority_actions = [
+                "Review findings with stakeholders",
+                "Document resolution steps"
+            ]
+        elif confidence >= 50 and trace_count > 0:
+            decision = "ADDITIONAL_SEARCH_RECOMMENDED"
+            priority_actions = [
+                "Search expanded time range",
+                "Include application logs"
+            ]
         else:
-            decision = "FURTHER_SEARCH_NEEDED"
-            reason = "Low confidence or insufficient relevant data found"
-
-        recommendations = []
-        if decision == "FURTHER_SEARCH_NEEDED":
-            recommendations.extend([
-                "Expand time range for search",
-                "Include additional log types",
-                "Search for related transaction IDs",
-                "Check system logs for the same time period"
-            ])
-        elif decision == "OPTIONAL_SEARCH":
-            recommendations.extend([
-                "Consider searching adjacent time periods",
-                "Look for related transactions if needed"
-            ])
+            decision = "FURTHER_INVESTIGATION_REQUIRED"
+            priority_actions = [
+                "Expand search parameters",
+                "Check system monitoring logs",
+                "Contact technical team"
+            ]
 
         return {
             'decision': decision,
-            'reason': reason,
-            'confidence_threshold': confidence,
-            'recommendations': recommendations
+            'confidence_level': 'HIGH' if confidence >= 75 else 'MEDIUM' if confidence >= 50 else 'LOW',
+            'priority_actions': priority_actions[:2]  # Top 2 only
         }
 
-    def _format_trace_overview(self, trace_data: Dict) -> str:
-        """Format trace data overview for prompts."""
-        all_trace_data = trace_data.get('all_trace_data', {})
-        if not all_trace_data:
-            return "No trace data available"
-
-        overview = []
-        for trace_id, data in all_trace_data.items():
-            overview.append(
-                f"- Trace {trace_id}: {data.get('total_entries', 0)} entries across {len(data.get('source_files', []))} files")
-
-        return "\n".join(overview)
-
-    def _create_trace_summary(self, trace_id: str, data: Dict) -> str:
-        """Create a brief summary of a trace."""
-        timeline = data.get('timeline', [])
-        first_op = timeline[0]['operation'] if timeline else 'Unknown'
-        last_op = timeline[-1]['operation'] if timeline else 'Unknown'
-
-        return f"Trace {trace_id}: {data.get('total_entries', 0)} entries, {first_op} → {last_op}"
-
-    def _format_timeline_snippet(self, timeline: List[Dict]) -> str:
-        """Format a snippet of timeline for prompts."""
-        if not timeline:
-            return "No timeline data"
-
-        lines = []
-        for i, step in enumerate(timeline):
-            lines.append(
-                f"{i + 1}. {step.get('timestamp', 'N/A')} - {step.get('operation', 'Unknown')} [{step.get('level', 'N/A')}]")
-
-        return "\n".join(lines)
-
-    def _format_top_traces_summary(self, top_traces: List[Dict]) -> str:
-        """Format summary of top traces for prompts."""
-        if not top_traces:
-            return "No traces found"
-
-        lines = []
-        for i, trace in enumerate(top_traces, 1):
-            lines.append(f"{i}. {trace['trace_summary']} (Relevance: {trace['relevance_score']}/100)")
-
-        return "\n".join(lines)
-
-    def _format_detailed_timeline(self, timeline: List[Dict]) -> str:
-        """Format detailed timeline for expert opinion."""
-        if not timeline:
-            return "No timeline available"
-
-        lines = []
-        for step in timeline:
-            source = Path(step.get('source_file', 'Unknown')).name if step.get('source_file') else 'Unknown'
-            lines.append(
-                f"{step.get('timestamp', 'N/A')} - {step.get('operation', 'Unknown')} [{step.get('level', 'N/A')}] ({source})")
-
-        return "\n".join(lines)
-
-    def _generate_recommendations(self, quality_assessment: Dict, further_search: Dict) -> List[str]:
-        """Generate actionable recommendations based on analysis."""
-        recommendations = []
-
-        # Quality-based recommendations
-        if quality_assessment.get('completeness_score', 0) < 70:
-            recommendations.append("Consider expanding search time range")
-
-        if quality_assessment.get('coverage_score', 0) < 70:
-            recommendations.append("Search additional log types (application, integration)")
-
-        # Search-based recommendations
-        recommendations.extend(further_search.get('recommendations', []))
-
-        # General recommendations
-        recommendations.extend([
-            "Review trace files for detailed transaction flow",
-            "Cross-reference findings with system monitoring data",
-            "Document findings for future reference"
-        ])
-
-        return list(set(recommendations))  # Remove duplicates
-
-    def _parse_quality_assessment_from_text(self, text: str) -> Dict:
+    def _save_concise_analysis(self, results: Dict, output_prefix: str = None) -> str:
         """
-        Parse quality assessment from free-form text when JSON parsing fails.
-        Uses keyword matching and number extraction.
+        Save concise single-file analysis.
         """
-        logger.info("Parsing quality assessment from text...")
+        timestamp = dt.now().strftime("%Y%m%d_%H%M%S")
+        prefix = output_prefix or f"concise_analysis_{timestamp}"
+        file_path = self.output_dir / f"{prefix}.txt"
 
-        import re
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                # Header
+                f.write("BANKING LOG ANALYSIS - CONCISE REPORT\n")
+                f.write("=" * 55 + "\n")
+                f.write(f"Date: {dt.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Confidence: {results.get('confidence_score', 0)}/100\n")
+                f.write(f"Status: {results.get('next_steps', {}).get('decision', 'N/A')}\n\n")
 
-        # Extract numbers that look like scores (0-100)
+                # Context (first line)
+                context = results.get('original_context', '').strip()
+                context_line = context.split('.')[0] + '.' if context else 'N/A'
+                if len(context_line) > 120:
+                    context_line = context_line[:117] + "..."
+                f.write(f"DISPUTE: {context_line}\n\n")
+
+                # Key Metrics
+                f.write("KEY METRICS:\n")
+                f.write("-" * 15 + "\n")
+                qa = results.get('quality_assessment', {})
+                f.write(f"• Data Quality: {qa.get('completeness_score', 0)}% complete, "
+                        f"{qa.get('relevance_score', 0)}% relevant, "
+                        f"{qa.get('coverage_score', 0)}% coverage\n")
+
+                traces = results.get('ranked_traces', [])
+                f.write(f"• Found {len(traces)} relevant traces")
+                if traces:
+                    f.write(f", top relevance: {traces[0]['relevance_score']}%\n")
+                else:
+                    f.write("\n")
+
+                metadata = results.get('metadata', {})
+                f.write(f"• Searched {metadata.get('total_files_searched', 0)} files, "
+                        f"{metadata.get('total_matches', 0)} matches\n\n")
+
+                # Summary
+                f.write("ANALYSIS SUMMARY:\n")
+                f.write("-" * 18 + "\n")
+                f.write(f"{results.get('summary', 'Summary not available.')}\n\n")
+
+                # Expert Opinion
+                f.write("EXPERT ASSESSMENT:\n")
+                f.write("-" * 19 + "\n")
+                f.write(f"{results.get('expert_opinion', 'Expert assessment not available.')}\n\n")
+
+                # Top Findings
+                if traces:
+                    f.write("TOP FINDINGS:\n")
+                    f.write("-" * 14 + "\n")
+                    for i, trace in enumerate(traces[:2], 1):
+                        f.write(f"{i}. {trace.get('key_finding', 'No finding')} "
+                                f"(Trace: {trace['trace_id'][:8]}..., "
+                                f"Relevance: {trace['relevance_score']}%)\n")
+                    f.write("\n")
+
+                # Next Steps
+                next_steps = results.get('next_steps', {})
+                f.write("NEXT STEPS:\n")
+                f.write("-" * 12 + "\n")
+                f.write(f"Decision: {next_steps.get('decision', 'N/A')}\n")
+                f.write(f"Confidence: {next_steps.get('confidence_level', 'N/A')}\n")
+                actions = next_steps.get('priority_actions', [])
+                for i, action in enumerate(actions, 1):
+                    f.write(f"{i}. {action}\n")
+                f.write("\n")
+
+                # Log Files
+                f.write("LOG FILES ANALYZED:\n")
+                f.write("-" * 20 + "\n")
+                all_files = set()
+                for trace in traces:
+                    trace_data = trace.get('trace_data', {})
+                    files = trace_data.get('source_files', [])
+                    all_files.update(files)
+
+                if all_files:
+                    for i, file_path in enumerate(sorted(all_files), 1):
+                        display_path = self._format_file_path(file_path)
+                        f.write(f"{i}. {display_path}\n")
+                else:
+                    f.write("No source files identified\n")
+                f.write("\n")
+
+                # Search Parameters
+                params = results.get('parameters', {})
+                f.write("SEARCH CONTEXT:\n")
+                f.write("-" * 16 + "\n")
+                f.write(f"Time Frame: {params.get('time_frame', 'N/A')}\n")
+                f.write(f"Domain: {params.get('domain', 'N/A')}\n")
+                f.write(f"Accounts: {', '.join(params.get('query_keys', []))}\n")
+
+                # Footer
+                f.write("\n" + "=" * 55 + "\n")
+                f.write(f"Analysis Model: {metadata.get('model_used', 'N/A')}\n")
+
+            logger.info(f"Concise analysis saved to: {file_path}")
+            return str(file_path)
+
+        except Exception as e:
+            logger.error(f"Error saving concise analysis: {e}")
+            raise
+
+    def _format_file_path(self, file_path: str) -> str:
+        """Format file path for display."""
+        if len(file_path) <= 80:
+            return file_path
+
+        # Show last part of path
+        parts = file_path.split('/')
+        if len(parts) > 1:
+            return ".../" + "/".join(parts[-2:])
+        else:
+            return "..." + file_path[-77:]
+
+    def _safe_parse_json(self, raw: str, fallback_fn):
+        """Parse JSON with fallback."""
+        text = raw.strip()
+
+        # Remove thinking tags
+        if text.lower().startswith("<think>") and text.lower().endswith("</think>"):
+            text = text[len("<think>"):-len("</think>")].strip()
+
+        # Extract JSON
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            text = match.group(0)
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return fallback_fn(text)
+
+    def _parse_quality_fallback(self, text: str) -> Dict:
+        """Fallback quality assessment parser."""
         numbers = re.findall(r'\b(\d{1,3})\b', text)
         valid_scores = [int(n) for n in numbers if 0 <= int(n) <= 100]
-
-        # Default scores if not enough found
-        default_scores = [70, 70, 70, 70]
-        scores = (valid_scores + default_scores)[:4]
-
-        # Extract text content for summary
-        summary_text = text[:300] if text else "Assessment completed from text analysis"
-
-        # Look for specific indicators
-        missing_elements = []
-        strengths = []
-
-        if "missing" in text.lower() or "lack" in text.lower():
-            missing_elements.append("Some elements may be missing (detected from text)")
-        if "complete" in text.lower() or "comprehensive" in text.lower():
-            strengths.append("Comprehensive data found")
-        if "clear" in text.lower() or "detailed" in text.lower():
-            strengths.append("Clear log entries")
+        scores = (valid_scores + [60, 60, 60])[:3]
 
         return {
             "completeness_score": scores[0],
             "relevance_score": scores[1],
             "coverage_score": scores[2],
-            "clarity_score": scores[3],
-            "overall_confidence": sum(scores) // 4,
-            "quality_summary": summary_text,
-            "missing_elements": missing_elements if missing_elements else ["Parsed from text - details may be limited"],
-            "strengths": strengths if strengths else ["Logs successfully retrieved and analyzed"]
+            "overall_confidence": sum(scores) // 3,
+            "status": "Assessment completed from text analysis",
+            "key_gaps": ["Detailed assessment unavailable"]
         }
 
-    def _parse_ranking_from_text(self, text: str) -> Dict:
-        """
-        Parse ranking from free-form text when JSON parsing fails.
-        """
-        logger.info("Parsing ranking from text...")
-
-        import re
-
-        # Look for relevance score
-        score_match = re.search(r'(?:relevance|score|rating).*?(\d{1,3})', text, re.IGNORECASE)
-        score = int(score_match.group(1)) if score_match and 0 <= int(score_match.group(1)) <= 100 else 70
-
-        # Extract reasoning (first 200 chars)
-        reasoning = text[:200] if text else "Ranking completed from text analysis"
-
-        # Look for indicators and concerns
-        indicators = []
-        concerns = []
-
-        if "relevant" in text.lower():
-            indicators.append("Relevance indicators found")
-        if "match" in text.lower():
-            indicators.append("Pattern matches detected")
-        if "concern" in text.lower() or "issue" in text.lower():
-            concerns.append("Potential issues identified")
-        if "error" in text.lower() or "problem" in text.lower():
-            concerns.append("Error patterns detected")
+    def _parse_ranking_fallback(self, text: str) -> Dict:
+        """Fallback ranking parser."""
+        score_match = re.search(r'(\d{1,3})', text)
+        score = int(score_match.group(1)) if score_match and 0 <= int(score_match.group(1)) <= 100 else 50
 
         return {
             "relevance_score": score,
-            "reasoning": reasoning,
-            "key_indicators": indicators if indicators else ["Text analysis completed"],
-            "concerns": concerns if concerns else ["No specific concerns identified"]
+            "key_finding": "Analysis completed from text",
+            "indicators": ["Text analysis applied"],
+            "concerns": ["Detailed parsing unavailable"]
         }
 
-    def _get_default_quality_assessment(self) -> Dict:
-        """Get default quality assessment when all parsing fails."""
-        return {
-            "completeness_score": 60,
-            "relevance_score": 60,
-            "coverage_score": 60,
-            "clarity_score": 60,
-            "overall_confidence": 60,
-            "quality_summary": "Assessment completed with default values - manual review recommended",
-            "missing_elements": ["Unable to parse detailed assessment"],
-            "strengths": ["Logs were successfully retrieved"]
-        }
-
-    def _get_default_ranking(self) -> Dict:
-        """Get default ranking when all parsing fails."""
-        return {
-            "relevance_score": 60,
-            "reasoning": "Ranking completed with default values - manual review recommended",
-            "key_indicators": ["Default analysis applied"],
-            "concerns": ["Unable to parse detailed ranking"]
-        }
-
-    def _create_fallback_quality_assessment(self, response_text: str) -> Dict:
-        """Create a fallback quality assessment when JSON parsing fails."""
-        # This method is now replaced by _parse_quality_assessment_from_text
-        return self._parse_quality_assessment_from_text(response_text)
-
-    def _create_fallback_ranking(self, response_text: str) -> Dict:
-        """Create a fallback ranking when JSON parsing fails."""
-        # This method is now replaced by _parse_ranking_from_text
-        return self._parse_ranking_from_text(response_text)
-
-    def _fix_json_math_expressions(self, json_str: str) -> str:
+    def _clean_response_text(self, text: str) -> str:
         """
-        Fix mathematical expressions in JSON strings that prevent parsing.
+        Clean LLM response text by removing thinking tags and extra content.
         """
+        # Remove <think> tags and their content
         import re
-
-        # Common patterns to fix
-        patterns = [
-            # Fix: (50 + 70 + 40 + 60) / 4 -> 55
-            (r'"overall_confidence":\s*\((\d+)\s*\+\s*(\d+)\s*\+\s*(\d+)\s*\+\s*(\d+)\)\s*/\s*4',
-             lambda
-                 m: f'"overall_confidence": {(int(m.group(1)) + int(m.group(2)) + int(m.group(3)) + int(m.group(4))) // 4}'),
-
-            # Fix: (num1 + num2 + num3) / 3 -> average
-            (r'"overall_confidence":\s*\((\d+)\s*\+\s*(\d+)\s*\+\s*(\d+)\)\s*/\s*3',
-             lambda m: f'"overall_confidence": {(int(m.group(1)) + int(m.group(2)) + int(m.group(3))) // 3}'),
-
-            # Fix any remaining math expressions with numbers
-            (r'"overall_confidence":\s*\([^)]+\)\s*/\s*\d+',
-             '"overall_confidence": 60'),
-
-            # Fix any field with mathematical expressions
-            (r':\s*\([^)]*\d+[^)]*\)[^,}]*', ': 60')
-        ]
-
-        for pattern, replacement in patterns:
-            if callable(replacement):
-                json_str = re.sub(pattern, replacement, json_str)
-            else:
-                json_str = re.sub(pattern, replacement, json_str)
-
-        logger.info(f"Fixed JSON: {json_str[:200]}...")
-        return json_str
-
-    def _safe_parse_json(self, raw: str, parse_fallback_fn):
-        """
-        Try to turn raw LLM output into a dict:
-        1. Strip <think>…</think>
-        2. Pull out the first {...} block
-        3. json.loads; if it fails, try fix_json_math_expressions
-        4. If still fails, delegate to parse_fallback_fn(raw)
-        """
-        text = raw.strip()
-
-        # 1) strip <think> tags
-        if text.lower().startswith("<think>") and text.lower().endswith("</think>"):
-            text = text[len("<think>"):-len("</think>")].strip()
-
-        # 2) extract first JSON object
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            text = match.group(0)
-
-        # 3) try standard JSON
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            # 4) try fixing math expressions
-            fixed = self._fix_json_math_expressions(text)
-            try:
-                return json.loads(fixed)
-            except json.JSONDecodeError:
-                # 5) fallback to your text parser
-                return parse_fallback_fn(text)
-
-    def _save_analysis_results(self, results: Dict, output_prefix: str = None) -> Dict[str, str]:
-        """
-        Save analysis results to multiple file formats.
-
-        Args:
-            results: Complete analysis results dictionary
-            output_prefix: Custom prefix for output files
-
-        Returns:
-            Dictionary mapping file types to their saved paths
-        """
-        timestamp = dt.now().strftime("%Y%m%d_%H%M%S")
-        prefix = output_prefix or f"log_analysis_{timestamp}"
-
-        saved_files = {}
-
-        try:
-            # 1. Save complete results as JSON
-            json_path = self.output_dir / f"{prefix}_complete_analysis.json"
-            self._save_json_results(results, json_path)
-            saved_files['complete_json'] = str(json_path)
-
-            # 2. Save human-readable summary report
-            summary_path = self.output_dir / f"{prefix}_summary_report.txt"
-            self._save_summary_report(results, summary_path)
-            saved_files['summary_report'] = str(summary_path)
-
-            # 3. Save expert opinion as separate file
-            opinion_path = self.output_dir / f"{prefix}_expert_opinion.txt"
-            self._save_expert_opinion(results, opinion_path)
-            saved_files['expert_opinion'] = str(opinion_path)
-
-            # 4. Save trace rankings as CSV
-            rankings_path = self.output_dir / f"{prefix}_trace_rankings.csv"
-            self._save_trace_rankings_csv(results, rankings_path)
-            saved_files['trace_rankings'] = str(rankings_path)
-
-            # 5. Save detailed trace data as JSON
-            traces_path = self.output_dir / f"{prefix}_detailed_traces.json"
-            self._save_detailed_traces(results, traces_path)
-            saved_files['detailed_traces'] = str(traces_path)
-
-            # 6. Save executive summary (short version)
-            exec_summary_path = self.output_dir / f"{prefix}_executive_summary.txt"
-            self._save_executive_summary(results, exec_summary_path)
-            saved_files['executive_summary'] = str(exec_summary_path)
-
-            logger.info(f"Analysis results saved to {len(saved_files)} files in {self.output_dir}")
-
-            # Add file paths to results
-            results['output_files'] = saved_files
-
-        except Exception as e:
-            logger.error(f"Error saving analysis results: {e}")
-            saved_files['error'] = str(e)
-
-        return saved_files
-
-    def _save_json_results(self, results: Dict, file_path: Path):
-        """Save complete results as formatted JSON."""
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(results, f, indent=2, ensure_ascii=False, default=str)
-        logger.info(f"Complete JSON results saved to: {file_path}")
-
-    def _save_summary_report(self, results: Dict, file_path: Path):
-        """Save human-readable summary report."""
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write("=" * 80 + "\n")
-            f.write("LOG ANALYSIS VERIFICATION REPORT\n")
-            f.write("=" * 80 + "\n\n")
-
-            f.write(f"Analysis Timestamp: {results.get('analysis_timestamp', 'N/A')}\n")
-            f.write(f"Model Used: {results.get('metadata', {}).get('model_used', 'N/A')}\n")
-            f.write(f"Confidence Score: {results.get('confidence_score', 0)}/100\n\n")
-
-            f.write("ORIGINAL CONTEXT:\n")
-            f.write("-" * 40 + "\n")
-            f.write(f"{results.get('original_context', 'N/A')}\n\n")
-
-            f.write("SEARCH PARAMETERS:\n")
-            f.write("-" * 40 + "\n")
-            params = results.get('parameters', {})
-            f.write(f"Time Frame: {params.get('time_frame', 'N/A')}\n")
-            f.write(f"Domain: {params.get('domain', 'N/A')}\n")
-            f.write(f"Query Keys: {params.get('query_keys', 'N/A')}\n\n")
-
-            f.write("SEARCH RESULTS SUMMARY:\n")
-            f.write("-" * 40 + "\n")
-            metadata = results.get('metadata', {})
-            f.write(f"Total Files Searched: {metadata.get('total_files_searched', 0)}\n")
-            f.write(f"Total Matches Found: {metadata.get('total_matches', 0)}\n")
-            f.write(f"Unique Traces Found: {metadata.get('unique_traces', 0)}\n\n")
-
-            f.write("QUALITY ASSESSMENT:\n")
-            f.write("-" * 40 + "\n")
-            qa = results.get('quality_assessment', {})
-            f.write(f"Completeness: {qa.get('completeness_score', 0)}/100\n")
-            f.write(f"Relevance: {qa.get('relevance_score', 0)}/100\n")
-            f.write(f"Coverage: {qa.get('coverage_score', 0)}/100\n")
-            f.write(f"Clarity: {qa.get('clarity_score', 0)}/100\n")
-            f.write(f"Overall Confidence: {qa.get('overall_confidence', 0)}/100\n\n")
-            f.write(f"Summary: {qa.get('quality_summary', 'N/A')}\n\n")
-
-            f.write("TOP RANKED TRACES:\n")
-            f.write("-" * 40 + "\n")
-            traces = results.get('ranked_traces', [])[:5]  # Top 5
-            for i, trace in enumerate(traces, 1):
-                f.write(f"{i}. Trace ID: {trace.get('trace_id', 'N/A')}\n")
-                f.write(f"   Relevance: {trace.get('relevance_score', 0)}/100\n")
-                f.write(f"   Summary: {trace.get('trace_summary', 'N/A')}\n")
-                f.write(f"   Reasoning: {trace.get('reasoning', 'N/A')}\n\n")
-
-            f.write("ANALYSIS SUMMARY:\n")
-            f.write("-" * 40 + "\n")
-            f.write(f"{results.get('summary', 'N/A')}\n\n")
-
-            f.write("RECOMMENDATIONS:\n")
-            f.write("-" * 40 + "\n")
-            for rec in results.get('recommendations', []):
-                f.write(f"• {rec}\n")
-            f.write("\n")
-
-            f.write("FURTHER SEARCH ASSESSMENT:\n")
-            f.write("-" * 40 + "\n")
-            search_needed = results.get('further_search_needed', {})
-            f.write(f"Decision: {search_needed.get('decision', 'N/A')}\n")
-            f.write(f"Reason: {search_needed.get('reason', 'N/A')}\n\n")
-
-        logger.info(f"Summary report saved to: {file_path}")
-
-    def _save_expert_opinion(self, results: Dict, file_path: Path):
-        """Save expert opinion as separate text file."""
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write("=" * 80 + "\n")
-            f.write("EXPERT OPINION - LOG ANALYSIS\n")
-            f.write("=" * 80 + "\n\n")
-
-            f.write(f"Analysis Date: {results.get('analysis_timestamp', 'N/A')}\n")
-            f.write(f"Confidence Level: {results.get('confidence_score', 0)}/100\n\n")
-
-            f.write("CONTEXT:\n")
-            f.write("-" * 20 + "\n")
-            f.write(f"{results.get('original_context', 'N/A')}\n\n")
-
-            f.write("EXPERT ANALYSIS:\n")
-            f.write("-" * 20 + "\n")
-            f.write(f"{results.get('expert_opinion', 'N/A')}\n\n")
-
-            # Add top trace details
-            traces = results.get('ranked_traces', [])
-            if traces:
-                top_trace = traces[0]
-                f.write("PRIMARY TRACE ANALYZED:\n")
-                f.write("-" * 30 + "\n")
-                f.write(f"Trace ID: {top_trace.get('trace_id', 'N/A')}\n")
-                f.write(f"Relevance Score: {top_trace.get('relevance_score', 0)}/100\n")
-                f.write(f"Key Indicators: {', '.join(top_trace.get('key_indicators', []))}\n")
-                f.write(f"Concerns: {', '.join(top_trace.get('concerns', []))}\n\n")
-
-        logger.info(f"Expert opinion saved to: {file_path}")
-
-    def _save_trace_rankings_csv(self, results: Dict, file_path: Path):
-        """Save trace rankings as CSV file."""
-        traces = results.get('ranked_traces', [])
-        if not traces:
-            logger.warning("No traces to save to CSV")
-            return
-
-        with open(file_path, 'w', encoding='utf-8') as f:
-            # CSV Header
-            f.write("Rank,Trace_ID,Relevance_Score,Total_Entries,Source_Files,Key_Indicators,Concerns,Reasoning\n")
-
-            for i, trace in enumerate(traces, 1):
-                trace_data = trace.get('trace_data', {})
-                source_files = '; '.join([Path(f).name for f in trace_data.get('source_files', [])])
-                indicators = '; '.join(trace.get('key_indicators', []))
-                concerns = '; '.join(trace.get('concerns', []))
-                reasoning = trace.get('reasoning', '').replace('\n', ' ').replace(',', ';')
-
-                f.write(f"{i},"
-                        f"{trace.get('trace_id', 'N/A')},"
-                        f"{trace.get('relevance_score', 0)},"
-                        f"{trace_data.get('total_entries', 0)},"
-                        f"\"{source_files}\","
-                        f"\"{indicators}\","
-                        f"\"{concerns}\","
-                        f"\"{reasoning}\"\n")
-
-        logger.info(f"Trace rankings CSV saved to: {file_path}")
-
-    def _save_detailed_traces(self, results: Dict, file_path: Path):
-        """Save detailed trace data as JSON."""
-        traces_data = {}
-        for trace in results.get('ranked_traces', []):
-            trace_id = trace.get('trace_id')
-            if trace_id:
-                traces_data[trace_id] = {
-                    'ranking_info': {
-                        'relevance_score': trace.get('relevance_score'),
-                        'reasoning': trace.get('reasoning'),
-                        'key_indicators': trace.get('key_indicators'),
-                        'concerns': trace.get('concerns'),
-                        'trace_summary': trace.get('trace_summary')
-                    },
-                    'trace_data': trace.get('trace_data', {})
-                }
-
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(traces_data, f, indent=2, ensure_ascii=False, default=str)
-
-        logger.info(f"Detailed traces saved to: {file_path}")
-
-    def _save_executive_summary(self, results: Dict, file_path: Path):
-        """Save brief executive summary."""
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write("EXECUTIVE SUMMARY - LOG ANALYSIS\n")
-            f.write("=" * 50 + "\n\n")
-
-            f.write(f"Date: {results.get('analysis_timestamp', 'N/A')}\n")
-            f.write(f"Confidence: {results.get('confidence_score', 0)}/100\n\n")
-
-            # Key findings
-            qa = results.get('quality_assessment', {})
-            f.write("KEY FINDINGS:\n")
-            f.write(f"• Found {results.get('metadata', {}).get('unique_traces', 0)} unique traces\n")
-            f.write(f"• Overall quality: {qa.get('overall_confidence', 0)}/100\n")
-            f.write(f"• Data completeness: {qa.get('completeness_score', 0)}/100\n\n")
-
-            # Top recommendation
-            recommendations = results.get('recommendations', [])
-            if recommendations:
-                f.write(f"TOP RECOMMENDATION: {recommendations[0]}\n\n")
-
-            # Search decision
-            search_needed = results.get('further_search_needed', {})
-            f.write(f"FURTHER SEARCH: {search_needed.get('decision', 'N/A')}\n")
-            f.write(f"REASON: {search_needed.get('reason', 'N/A')}\n\n")
-
-            # Brief summary (first 300 chars)
-            summary = results.get('summary', '')
-            if len(summary) > 300:
-                summary = summary[:300] + "..."
-            f.write(f"SUMMARY: {summary}\n")
-
-        logger.info(f"Executive summary saved to: {file_path}")
-
-    def save_custom_report(self, results: Dict, template_type: str = "detailed",
-                           output_path: str = None) -> str:
-        """
-        Save a custom formatted report.
-
-        Args:
-            results: Analysis results dictionary
-            template_type: Type of report ("detailed", "brief", "technical")
-            output_path: Custom output path
-
-        Returns:
-            Path to saved report
-        """
-        timestamp = dt.now().strftime("%Y%m%d_%H%M%S")
-        if not output_path:
-            output_path = self.output_dir / f"custom_report_{template_type}_{timestamp}.txt"
-        else:
-            output_path = Path(output_path)
-
-        try:
-            if template_type == "technical":
-                self._save_technical_report(results, output_path)
-            elif template_type == "brief":
-                self._save_brief_report(results, output_path)
-            else:  # detailed
-                self._save_summary_report(results, output_path)
-
-            logger.info(f"Custom {template_type} report saved to: {output_path}")
-            return str(output_path)
-
-        except Exception as e:
-            logger.error(f"Error saving custom report: {e}")
-            raise
-
-    def _save_technical_report(self, results: Dict, file_path: Path):
-        """Save technical report with detailed trace analysis."""
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write("TECHNICAL LOG ANALYSIS REPORT\n")
-            f.write("=" * 60 + "\n\n")
-
-            # Technical metadata
-            f.write("TECHNICAL DETAILS:\n")
-            f.write("-" * 30 + "\n")
-            metadata = results.get('metadata', {})
-            f.write(f"Analysis Model: {metadata.get('model_used', 'N/A')}\n")
-            f.write(f"Files Processed: {metadata.get('total_files_searched', 0)}\n")
-            f.write(f"Pattern Matches: {metadata.get('total_matches', 0)}\n")
-            f.write(f"Trace Objects: {metadata.get('unique_traces', 0)}\n\n")
-
-            # Quality metrics
-            qa = results.get('quality_assessment', {})
-            f.write("QUALITY METRICS:\n")
-            f.write("-" * 30 + "\n")
-            for metric in ['completeness_score', 'relevance_score', 'coverage_score', 'clarity_score']:
-                f.write(f"{metric.replace('_', ' ').title()}: {qa.get(metric, 0)}/100\n")
-            f.write(f"Composite Score: {qa.get('overall_confidence', 0)}/100\n\n")
-
-            # Detailed trace analysis
-            f.write("TRACE ANALYSIS:\n")
-            f.write("-" * 30 + "\n")
-            for i, trace in enumerate(results.get('ranked_traces', [])[:3], 1):
-                f.write(f"Trace {i}: {trace.get('trace_id', 'N/A')}\n")
-                f.write(f"  Relevance: {trace.get('relevance_score', 0)}/100\n")
-                trace_data = trace.get('trace_data', {})
-                f.write(f"  Events: {trace_data.get('total_entries', 0)}\n")
-                f.write(f"  Timeline: {len(trace_data.get('timeline', []))}\n")
-                f.write(f"  Sources: {len(trace_data.get('source_files', []))}\n\n")
-
-    def _save_brief_report(self, results: Dict, file_path: Path):
-        """Save brief summary report."""
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write("BRIEF LOG ANALYSIS REPORT\n")
-            f.write("=" * 40 + "\n\n")
-
-            f.write(f"Analysis Date: {results.get('analysis_timestamp', 'N/A')}\n")
-            f.write(f"Confidence: {results.get('confidence_score', 0)}/100\n\n")
-
-            # One-line summary
-            qa = results.get('quality_assessment', {})
-            f.write(f"Status: {qa.get('quality_summary', 'Analysis completed')}\n\n")
-
-            # Top findings
-            traces = results.get('ranked_traces', [])
-            if traces:
-                top_trace = traces[0]
-                f.write(f"Primary Finding: {top_trace.get('trace_summary', 'N/A')}\n")
-                f.write(f"Relevance: {top_trace.get('relevance_score', 0)}/100\n\n")
-
-            # Next steps
-            search_needed = results.get('further_search_needed', {})
-            f.write(f"Next Steps: {search_needed.get('decision', 'N/A')}\n")
-            f.write(f"Reason: {search_needed.get('reason', 'N/A')}\n")
+        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+
+        # Remove any remaining XML-like tags
+        text = re.sub(r'<[^>]+>', '', text)
+
+        # Clean up extra whitespace
+        text = ' '.join(text.split())
+
+        return text.strip()
+
+    def _get_default_quality(self) -> Dict:
+        """Default quality assessment."""
+        return {
+            "completeness_score": 50,
+            "relevance_score": 50,
+            "coverage_score": 50,
+            "overall_confidence": 50,
+            "status": "Default assessment applied",
+            "key_gaps": ["Assessment processing error"]
+        }

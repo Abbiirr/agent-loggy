@@ -53,7 +53,7 @@ class Orchestrator:
         # --- ONLY TEST STEP 5 ---
         logger.info("Step 5: Running Verify Agent...")
 
-        verification_results = self.verify_agent.analyze_and_verify(
+        verification_results = self.verify_agent.analyze_and_verify_concise(
             original_context=text,
             search_results=search_results,
             trace_data={'all_trace_data': file_creation_result['all_trace_data']},

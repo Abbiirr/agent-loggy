@@ -1,16 +1,18 @@
 # main.py
 # !/usr/bin/env python3
+import asyncio
 import logging
 import sys
 import json
 import uuid
+from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 from ollama import Client
 from orchestrator import Orchestrator
 import httpx
-from schemas import *
+from schemas.StreamRequest import StreamRequest
 from pydantic import BaseModel
 
 # Setup logging
@@ -60,14 +62,52 @@ orchestrator = Orchestrator(client, model="deepseek-r1:8b", log_base_dir="./data
 
 
 # Pydantic models for the chat interface
+class ChatRequest(BaseModel):
+    prompt: str
 
 
+class ChatResponse(BaseModel):
+    streamUrl: str
 
 
+class ChatRequest(BaseModel):
+    prompt: str
+
+
+class ChatResponse(BaseModel):
+    streamUrl: str
 
 
 # Store active sessions (in production, use Redis or proper session management)
 active_sessions = {}
+
+
+@app.post("/test-sse")
+async def test_sse():
+    """
+    Simple test endpoint to verify SSE formatting works correctly
+    """
+
+    async def event_generator():
+        # Test different event types
+        test_events = [
+            ("test_event", {"message": "This is a test event"}),
+            ("progress", {"step": "Processing", "percentage": 25}),
+            ("data_found", {"files": ["file1.log", "file2.log"], "count": 2}),
+            ("completed", {"status": "success", "message": "Test completed"})
+        ]
+
+        for step, payload in test_events:
+            data = json.dumps(payload, default=str, ensure_ascii=False)
+            yield {
+                "event": step,
+                "data": data
+            }
+            # Small delay for realistic streaming
+            import asyncio
+            await asyncio.sleep(0.5)
+
+    return EventSourceResponse(event_generator())
 
 
 @app.post("/debug/analyze")
@@ -78,20 +118,48 @@ async def debug_analyze(req: StreamRequest):
     text = req.text
     results = []
 
-    async for step, payload in orchestrator.analyze_stream(text):
-        result = {
-            "step": step,
-            "payload_type": str(type(payload).__name__),
-            "payload": payload,
-            "payload_str": str(payload)[:200] + "..." if len(str(payload)) > 200 else str(payload)
-        }
-        results.append(result)
+    try:
+        async for step, payload in orchestrator.analyze_stream(text):
+            result = {
+                "step_raw": repr(step),
+                "step_type": str(type(step).__name__),
+                "payload_raw": repr(payload),
+                "payload_type": str(type(payload).__name__),
+                "step_str": str(step) if step else "None",
+                "payload_str": str(payload)[:500] + "..." if payload and len(str(payload)) > 500 else str(payload)
+            }
+            results.append(result)
 
-        # Limit to first 10 items for debugging
-        if len(results) >= 10:
-            break
+            # Limit to first 20 items for debugging
+            if len(results) >= 20:
+                break
+    except Exception as e:
+        return {"error": f"Error during orchestrator stream: {str(e)}", "debug_results": results}
 
-    return {"debug_results": results}
+    return {"debug_results": results, "total_items": len(results)}
+
+
+@app.post("/test-sse")
+async def test_sse():
+    """
+    Simple test endpoint to verify SSE formatting
+    """
+
+    async def event_generator():
+        # Test different event types
+        test_events = [
+            ("test_event", {"message": "This is a test event"}),
+            ("another_event", {"data": "Some test data", "count": 42}),
+            ("final_event", {"status": "completed"})
+        ]
+
+        for step, payload in test_events:
+            data = json.dumps(payload, default=str, ensure_ascii=False)
+            sse_event = f"event: {step}\ndata: {data}\n\n"
+            yield sse_event
+            await asyncio.sleep(0.1)  # Small delay for testing
+
+    return EventSourceResponse(event_generator())
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -117,7 +185,8 @@ async def chat(req: ChatRequest):
 @app.get("/api/chat/stream/{session_id}")
 async def chat_stream(session_id: str):
     """
-    SSE endpoint that streams the AI response in the format expected by ChatInterface.
+    SSE endpoint that streams the AI response.
+    Refactored to work like stream-analysis endpoint without hardcoded step logic.
     """
     if session_id not in active_sessions:
         return {"error": "Session not found"}
@@ -130,57 +199,34 @@ async def chat_stream(session_id: str):
             # Mark session as active
             active_sessions[session_id]["status"] = "streaming"
 
-            # Stream each orchestrator step and convert to ChatInterface format
+            # Stream each orchestrator step
             async for step, payload in orchestrator.analyze_stream(prompt):
-                logger.info(f"Received step: {step}, payload type: {type(payload)}")
+                # Only yield if we have valid data
+                if step and payload is not None:
+                    try:
+                        # Ensure payload is properly serializable
+                        if isinstance(payload, (dict, list)):
+                            data = json.dumps(payload, default=str, ensure_ascii=False)
+                        elif isinstance(payload, str):
+                            data = payload
+                        else:
+                            data = str(payload)
 
-                # Handle different step types from your orchestrator
-                if step in ["thinking", "response", "analysis", "final"]:
-                    text_content = ""
+                        # Yield the complete SSE event as a single formatted string
+                        sse_event = f"event: {step}\ndata: {data}\n\n"
+                        yield sse_event
 
-                    # Extract text content based on payload type
-                    if isinstance(payload, dict):
-                        # Try different possible keys for text content
-                        text_content = (
-                                payload.get("content", "") or
-                                payload.get("text", "") or
-                                payload.get("message", "") or
-                                payload.get("response", "")
-                        )
-
-                        # If no text in standard keys, try to extract from other fields
-                        if not text_content and payload:
-                            # Look for any string values in the dict
-                            for key, value in payload.items():
-                                if isinstance(value, str) and len(value) > 10:  # Reasonable text length
-                                    text_content = value
-                                    break
-
-                    elif isinstance(payload, str):
-                        text_content = payload
-                    else:
-                        # Convert other types to string if they contain useful info
-                        text_content = str(payload) if payload else ""
-
-                    # Only send non-empty content
-                    if text_content and text_content.strip():
-                        chunk_data = json.dumps({"chunk": text_content})
-                        yield f"data: {chunk_data}\n\n"
-
-                elif step == "error":
-                    # Handle error cases
-                    error_msg = str(payload) if payload else "An error occurred"
-                    chunk_data = json.dumps({"chunk": f"Error: {error_msg}"})
-                    yield f"data: {chunk_data}\n\n"
+                    except Exception as e:
+                        logger.error(f"Error serializing payload for step {step}: {e}")
+                        error_event = f"event: error\ndata: {json.dumps({'error': f'Serialization error: {str(e)}'})}\n\n"
+                        yield error_event
 
             # Send completion event
-            yield f"event: done\n"
-            yield f"data: {json.dumps({'status': 'complete'})}\n\n"
+            yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
 
         except Exception as e:
             logger.error(f"Error in chat stream: {e}")
-            yield f"event: error\n"
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
         finally:
             # Clean up session
             if session_id in active_sessions:
@@ -192,7 +238,7 @@ async def chat_stream(session_id: str):
 @app.post("/stream-analysis")
 async def stream_analysis(req: StreamRequest):
     """
-    Original endpoint - kept for backward compatibility
+    Original endpoint - fixed SSE formatting
     """
     text = req.text
 
@@ -201,7 +247,6 @@ async def stream_analysis(req: StreamRequest):
         async for step, payload in orchestrator.analyze_stream(text):
             # Only yield if we have valid data
             if step and payload is not None:
-                event_name = step
                 try:
                     # Ensure payload is properly serializable
                     if isinstance(payload, (dict, list)):
@@ -211,10 +256,10 @@ async def stream_analysis(req: StreamRequest):
                     else:
                         data = str(payload)
 
-                    # Proper SSE format
+                    # Yield the complete SSE event as a single formatted string
+                    # This prevents sse_starlette from adding extra "data: " prefixes
                     sse_event = f"event: {step}\ndata: {data}\n\n"
                     yield sse_event
-
 
                 except Exception as e:
                     logger.error(f"Error serializing payload for step {step}: {e}")

@@ -31,14 +31,14 @@ class Orchestrator:
         # STEP 1: Parameter extraction
         logger.info("STEP 1: Parameter extraction…")
         params = self.param_agent.run(text)
-        yield "params", {"parameters": params}
+        yield "Extracted Parameters", {"parameters": params}
         await asyncio.sleep(0)
 
         # STEP 2: File search
         logger.info("STEP 2: File search…")
         log_files = self.file_searcher.find_and_verify(params)
         files = [str(f) for f in log_files]
-        yield "files", {"found_files": files, "total_files": len(files)}
+        yield "Found relevant files", {"found_files": files, "total_files": len(files)}
         await asyncio.sleep(0)
 
         # STEP 3: Trace ID collection
@@ -50,7 +50,7 @@ class Orchestrator:
                 tid = r.get("trace_id")
                 if tid and tid not in unique_ids:
                     unique_ids.append(tid)
-        yield "trace_ids", {"found_trace_ids": unique_ids, "count": len(unique_ids)}
+        yield "Found trace id(s)", {"found_trace_ids": unique_ids, "count": len(unique_ids)}
         await asyncio.sleep(0)
 
         # STEP 4: Compilation summary
@@ -79,26 +79,26 @@ class Orchestrator:
             }
             summary_counts[trace_id] = len(entries)
 
-        yield "compiled_summary", {
+        yield "Compiled Request Traces", {
             "traces_compiled": len(summary_counts),
             "entries_per_trace": summary_counts
         }
         await asyncio.sleep(0)
 
         # STEP 5: Verification summary
-        # logger.info("STEP 5: Verification & file gen…")
-        # result = self.verify_agent.analyze_and_create_comprehensive_files(
-        #     original_context=text,
-        #     search_results={"unique_trace_ids": unique_ids},
-        #     trace_data={"all_trace_data": compiled},
-        #     parameters=params,
-        #     output_prefix="banking_analysis"
-        # )
-        # yield "verification_summary", {
-        #     "created_files": result.get("comprehensive_files_created", []),
-        #     "master_summary_file": result.get("master_summary_file")
-        # }
-        # await asyncio.sleep(0)
+        logger.info("STEP 5: Verification & file gen…")
+        result = self.verify_agent.analyze_and_create_comprehensive_files(
+            original_context=text,
+            search_results={"unique_trace_ids": unique_ids},
+            trace_data={"all_trace_data": compiled},
+            parameters=params,
+            output_prefix="banking_analysis"
+        )
+        yield "Compiled Summary", {
+            "created_files": result.get("comprehensive_files_created", []),
+            "master_summary_file": result.get("master_summary_file")
+        }
+        await asyncio.sleep(0)
 
         # DONE
         yield "done", {"message": "Analysis complete."}

@@ -1,2 +1,6 @@
 ollama
 pytest
+fastapi
+uvicorn[standard]
+sse-starlette
+pydantic

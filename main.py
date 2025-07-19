@@ -10,7 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 from ollama import Client
 from orchestrator import Orchestrator
 import httpx
-from schemas.StreamRequest import StreamRequest
+from schemas import *
 from pydantic import BaseModel
 
 # Setup logging
@@ -60,12 +60,10 @@ orchestrator = Orchestrator(client, model="deepseek-r1:8b", log_base_dir="./data
 
 
 # Pydantic models for the chat interface
-class ChatRequest(BaseModel):
-    prompt: str
 
 
-class ChatResponse(BaseModel):
-    streamUrl: str
+
+
 
 
 # Store active sessions (in production, use Redis or proper session management)
@@ -214,13 +212,14 @@ async def stream_analysis(req: StreamRequest):
                         data = str(payload)
 
                     # Proper SSE format
-                    yield f"event: {event_name}\n"
-                    yield f"data: {data}\n\n"
+                    sse_event = f"event: {step}\ndata: {data}\n\n"
+                    yield sse_event
+
 
                 except Exception as e:
                     logger.error(f"Error serializing payload for step {step}: {e}")
-                    yield f"event: error\n"
-                    yield f"data: {json.dumps({'error': f'Serialization error: {str(e)}'})}\n\n"
+                    error_event = f"event: error\ndata: {json.dumps({'error': f'Serialization error: {str(e)}'})}\n\n"
+                    yield error_event
 
     return EventSourceResponse(event_generator())
 

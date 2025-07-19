@@ -86,19 +86,19 @@ class Orchestrator:
         await asyncio.sleep(0)
 
         # STEP 5: Verification summary
-        logger.info("STEP 5: Verification & file gen…")
-        result = self.verify_agent.analyze_and_create_comprehensive_files(
-            original_context=text,
-            search_results={"unique_trace_ids": unique_ids},
-            trace_data={"all_trace_data": compiled},
-            parameters=params,
-            output_prefix="banking_analysis"
-        )
-        yield "verification_summary", {
-            "created_files": result.get("comprehensive_files_created", []),
-            "master_summary_file": result.get("master_summary_file")
-        }
-        await asyncio.sleep(0)
+        # logger.info("STEP 5: Verification & file gen…")
+        # result = self.verify_agent.analyze_and_create_comprehensive_files(
+        #     original_context=text,
+        #     search_results={"unique_trace_ids": unique_ids},
+        #     trace_data={"all_trace_data": compiled},
+        #     parameters=params,
+        #     output_prefix="banking_analysis"
+        # )
+        # yield "verification_summary", {
+        #     "created_files": result.get("comprehensive_files_created", []),
+        #     "master_summary_file": result.get("master_summary_file")
+        # }
+        # await asyncio.sleep(0)
 
         # DONE
         yield "done", {"message": "Analysis complete."}

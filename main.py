@@ -2,14 +2,17 @@
 # !/usr/bin/env python3
 import asyncio
 import logging
+import os
 import sys
 import json
 import uuid
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 from ollama import Client
+from fastapi.responses import FileResponse
+
 from orchestrator import Orchestrator
 import httpx
 from schemas.StreamRequest import StreamRequest
@@ -268,6 +271,21 @@ async def stream_analysis(req: StreamRequest):
 
     return EventSourceResponse(event_generator())
 
+ANALYSIS_DIR = r"K:\projects\ai\agent-loggy\comprehensive_analysis"
+
+@app.get("/download/")
+def download_file(filename: str = Query(..., description="Name of the file to download")):
+    # Prevent directory traversal
+    safe_path = os.path.normpath(os.path.join(ANALYSIS_DIR, filename))
+    if not safe_path.startswith(os.path.normpath(ANALYSIS_DIR)):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not os.path.isfile(safe_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(
+        path=safe_path,
+        filename=filename,
+        media_type="application/octet-stream",
+    )
 
 if __name__ == "__main__":
     import uvicorn

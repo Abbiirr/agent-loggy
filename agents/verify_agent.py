@@ -66,22 +66,25 @@ class VerifyAgent:
                 trace_id, comprehensive_trace_data, original_context, parameters
             )
 
-            # Create comprehensive file
-            file_path = self._create_comprehensive_trace_file(
+            # Create comprehensive file and resolve to absolute path
+            relative_path = self._create_comprehensive_trace_file(
                 trace_id, trace_analysis, comprehensive_trace_data,
                 original_context, parameters, overall_quality, output_prefix
             )
+            logger.info("Comprehensive file created: %s", relative_path)
+            abs_path = str(Path(relative_path).resolve())
+            logger.info("Found absolute path for comprehensive file: %s", abs_path)
 
-            created_files.append(file_path)
+            created_files.append(abs_path)
             trace_analyses[trace_id] = trace_analysis
+            logger.info(f"✓ Created comprehensive file: {abs_path}")
 
-            logger.info(f"✓ Created comprehensive file: {file_path}")
-
-        # Step 3: Create master summary file
-        master_summary_path = self._create_master_summary_file(
+            # Create master summary file and resolve absolute path
+        master_summary_relative = self._create_master_summary_file(
             original_context, search_results, trace_analyses,
             overall_quality, parameters, created_files, output_prefix
         )
+        master_summary_path = str(Path(master_summary_relative).resolve())
 
         results = {
             'analysis_timestamp': dt.now().isoformat(),
@@ -106,34 +109,34 @@ class VerifyAgent:
         return results
 
     def _analyze_single_trace(
-                self,
-                trace_id: str,
-                trace_data: Dict,
-                original_context: str,
-                parameters: Dict
-        ) -> Dict:
-            """Analyze a single trace for relevance and findings by inspecting actual log content."""
+            self,
+            trace_id: str,
+            trace_data: Dict,
+            original_context: str,
+            parameters: Dict
+    ) -> Dict:
+        """Analyze a single trace for relevance and findings by inspecting actual log content."""
 
-            # Extract key log messages and timeline for analysis
-            log_entries = trace_data.get('log_entries', [])
-            timeline = trace_data.get('timeline', [])
+        # Extract key log messages and timeline for analysis
+        log_entries = trace_data.get('log_entries', [])
+        timeline = trace_data.get('timeline', [])
 
-            # Get sample log messages for context
-            sample_messages = []
-            for entry in log_entries[:10]:  # First 10 entries
-                message = entry.get('message', '')
-                if message and len(message) > 20:  # Only meaningful messages
-                    sample_messages.append(message[:200])  # First 200 chars
+        # Get sample log messages for context
+        sample_messages = []
+        for entry in log_entries[:10]:  # First 10 entries
+            message = entry.get('message', '')
+            if message and len(message) > 20:  # Only meaningful messages
+                sample_messages.append(message[:200])  # First 200 chars
 
-            # Get timeline summary
-            timeline_steps = []
-            for step in timeline[:15]:  # First 15 timeline events
-                operation = step.get('operation', 'Unknown')
-                timestamp = step.get('timestamp', 'N/A')
-                level = step.get('level', 'INFO')
-                timeline_steps.append(f"{timestamp} [{level}] {operation}")
+        # Get timeline summary
+        timeline_steps = []
+        for step in timeline[:15]:  # First 15 timeline events
+            operation = step.get('operation', 'Unknown')
+            timestamp = step.get('timestamp', 'N/A')
+            level = step.get('level', 'INFO')
+            timeline_steps.append(f"{timestamp} [{level}] {operation}")
 
-            prompt = f"""
+        prompt = f"""
     You are a senior banking systems analyst investigating a transaction dispute. Analyze this trace by examining the actual log content to understand what happened during this transaction request.
 
     ORIGINAL DISPUTE: {original_context[:300]}
@@ -186,36 +189,36 @@ class VerifyAgent:
     }}
     """
 
-            try:
-                response = self.client.chat(
-                    model=self.model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a senior banking systems analyst with expertise in transaction processing, log analysis, and dispute resolution. Analyze the provided log data thoroughly to understand exactly what happened during this transaction. Focus on technical details and evidence-based conclusions."
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
-                    ]
-                )
+        try:
+            response = self.client.chat(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a senior banking systems analyst with expertise in transaction processing, log analysis, and dispute resolution. Analyze the provided log data thoroughly to understand exactly what happened during this transaction. Focus on technical details and evidence-based conclusions."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
 
-                raw_response = response["message"]["content"].strip()
-                analysis = self._safe_parse_json(raw_response, self._default_trace_analysis)
+            raw_response = response["message"]["content"].strip()
+            analysis = self._safe_parse_json(raw_response, self._default_trace_analysis)
 
-                # Add computed fields
-                analysis['trace_id'] = trace_id
-                analysis['total_entries'] = trace_data.get('total_entries', 0)
-                analysis['source_files_count'] = len(trace_data.get('source_files', []))
-                analysis['log_sample_size'] = len(sample_messages)
-                analysis['timeline_events_analyzed'] = len(timeline_steps)
+            # Add computed fields
+            analysis['trace_id'] = trace_id
+            analysis['total_entries'] = trace_data.get('total_entries', 0)
+            analysis['source_files_count'] = len(trace_data.get('source_files', []))
+            analysis['log_sample_size'] = len(sample_messages)
+            analysis['timeline_events_analyzed'] = len(timeline_steps)
 
-                return analysis
+            return analysis
 
-            except Exception as e:
-                logger.error(f"Error analyzing trace {trace_id}: {e}")
-                return self._default_trace_analysis(trace_id)
+        except Exception as e:
+            logger.error(f"Error analyzing trace {trace_id}: {e}")
+            return self._default_trace_analysis(trace_id)
 
     def _create_comprehensive_trace_file(
             self,

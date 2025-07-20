@@ -10,3 +10,7 @@ trace_outputs/
 verification_output/
 
 comprehensive_analysis/
+
+tools/loki/trace_logs/
+
+tools/loki/test_reports/

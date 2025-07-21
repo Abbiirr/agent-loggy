@@ -6,6 +6,7 @@ log_compiler.py: Library for compiling Loki and application logs into human-read
 import json
 import os
 import re
+from typing import List, Dict, Any
 from xml.etree import ElementTree as ET
 from datetime import datetime
 
@@ -120,89 +121,81 @@ def parse_plain_log(file_path, trace_id):
     return entries
 
 def generate_comprehensive_report(
-    trace_id,
-    entries,
-    dispute_text,
-    search_params,
-    summary_metrics,
-    analysis_model,
-    output_path
-):
+    trace_ids: List[str],
+    entries: List[Dict[str, Any]],
+    dispute_text: str,
+    search_params: Dict[str, Any],
+    summary_metrics: Dict[str, Any],
+    analysis_model: str,
+    output_path: str
+) -> str:
     """
     Write a comprehensive banking log analysis report to output_path.
-
-    entries must include:
-      timestamp, trace_id, level, message, source,
-      scope_name, service_instance_id, service_name,
-      service_namespace, severity_number, severity_text, span_id,
-      detected_level
+    - trace_ids: all IDs we investigated
+    - entries   : flat list of log-entry dicts (can mix multiple trace_ids)
+    - dispute_text: original user text
+    - search_params: whatever params dict you used to drive the searches
+    - summary_metrics: a dict you build (e.g. relevance_score, confidence_level, etc.)
+    - analysis_model : name/version of the LLM or analyzer used
     """
-    entries_sorted = sorted(entries, key=lambda e: e['timestamp'] or datetime.min)
+    # 1) Sort entries by timestamp (None => earliest)
+    entries_sorted = sorted(entries, key=lambda e: e.get('timestamp') or datetime.min)
+
+    # 2) Prepare header info
     gen_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    ids_line = ", ".join(trace_ids)
+
+    # 3) Write out the report
     with open(output_path, 'w', encoding='utf-8') as out:
         out.write("COMPREHENSIVE BANKING LOG ANALYSIS\n")
         out.write("="*60 + "\n")
-        out.write(f"Generated: {gen_time}\n")
-        out.write(f"Trace ID: {trace_id}\n")
-        out.write(f"Analysis Model: {analysis_model}\n")
+        out.write(f"Generated:    {gen_time}\n")
+        out.write(f"Trace IDs:    {ids_line}\n")
+        out.write(f"Analysis LLM: {analysis_model}\n")
         out.write("="*60 + "\n\n")
 
-        # Executive Summary
         out.write("EXECUTIVE SUMMARY\n")
         out.write("-"*20 + "\n")
-        out.write(f"Relevance Score: {summary_metrics.get('relevance_score')}\n")
-        out.write(f"Confidence Level: {summary_metrics.get('confidence_level')}\n")
-        out.write(f"Primary Issue: {summary_metrics.get('primary_issue')}\n")
-        out.write(f"Total Log Entries: {len(entries_sorted)}\n")
-        sources = set(e['source'] for e in entries_sorted)
-        out.write(f"Source Files: {len(sources)}\n")
-        out.write(f"Recommendation: {summary_metrics.get('recommendation')}\n\n")
+        # No hard‑coded metrics here—just loop over what was passed in
+        for key, val in summary_metrics.items():
+            out.write(f"{key.replace('_',' ').title():18}: {val}\n")
+        out.write(f"{'Total Entries':18}: {len(entries_sorted)}\n\n")
 
-        # Original Dispute
         out.write("ORIGINAL DISPUTE\n")
         out.write("-"*20 + "\n")
-        out.write(dispute_text + "\n\n")
+        out.write(dispute_text.strip() + "\n\n")
 
-        # Search Parameters
         out.write("SEARCH PARAMETERS\n")
         out.write("-"*20 + "\n")
         for k, v in search_params.items():
-            out.write(f"{k}: {v}\n")
+            out.write(f"{k:18}: {v}\n")
         out.write("\n")
 
-        # Detailed Analysis stub
-        out.write("DETAILED ANALYSIS\n")
-        out.write("-"*20 + "\n")
-        out.write("Key Finding: See transaction timeline below for issue location.\n")
-        out.write("Timeline Summary: Automated sequence of events.\n\n")
-
-        # Transaction Timeline
         out.write("TRANSACTION TIMELINE\n")
         out.write("-"*20 + "\n")
-        for idx, e in enumerate(entries_sorted, 1):
-            ts = e['timestamp'].strftime('%Y-%m-%d/%H:%M:%S') if e['timestamp'] else 'N/A'
-            out.write(f"{idx:2}. {ts} | {e['level']} | {e['service_name']} | {e['message'][:80]}...\n")
+        for i, e in enumerate(entries_sorted, 1):
+            ts = e['timestamp'].strftime('%Y-%m-%d/%H:%M:%S') if e.get('timestamp') else 'N/A'
+            svc = e.get('service_name') or 'N/A'
+            lvl = e.get('level') or 'N/A'
+            msg = (e.get('message') or '').replace('\n',' ')[:80]
+            out.write(f"{i:3}. {ts} | {lvl:5} | {svc:20} | {msg}...\n")
         out.write("\n")
 
-        # Complete Entries
-        out.write("COMPLETE LOG ENTRIES (Chronological Order)\n")
+        out.write("COMPLETE LOG ENTRIES\n")
         out.write("="*40 + "\n\n")
-        for idx, e in enumerate(entries_sorted, 1):
-            out.write(f"LOG ENTRY {idx}\n")
+        for i, e in enumerate(entries_sorted, 1):
+            out.write(f"ENTRY {i}\n")
             out.write("-"*15 + "\n")
-            out.write(f"Source: {e['source']}\n")
-            ts = e['timestamp'].strftime('%Y-%m-%d/%H:%M:%S') if e['timestamp'] else 'N/A'
-            out.write(f"Timestamp: {ts}\n")
-            out.write(f"Level: {e['level']}\n")
-            out.write(f"Detected Level: {e.get('detected_level')}\n")
-            out.write(f"Scope: {e.get('scope_name')}\n")
-            out.write(f"Service: {e.get('service_name')} ({e.get('service_instance_id')})\n")
-            out.write(f"Namespace: {e.get('service_namespace')}\n")
-            out.write(f"Span ID: {e.get('span_id')}\n")
-            out.write(f"Severity: {e.get('severity_text')}({e.get('severity_number')})\n\n")
-            out.write("Full Log Content:\n")
-            out.write(e['message'] + "\n\n")
+            out.write(f"Source    : {e.get('source')}\n")
+            ts = e['timestamp'].strftime('%Y-%m-%d %H:%M:%S') if e.get('timestamp') else 'N/A'
+            out.write(f"Timestamp : {ts}\n")
+            out.write(f"Level     : {e.get('level')}\n")
+            out.write(f"Span ID   : {e.get('span_id')}\n")
+            out.write(f"Namespace : {e.get('service_namespace')}\n")
+            out.write(f"Message   : {e.get('message')}\n\n")
+
     return output_path
+
 
 
 

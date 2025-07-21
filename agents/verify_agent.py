@@ -613,3 +613,118 @@ JSON format:
             'confidence_score': 0,
             'message': 'No trace data available for analysis'
         }
+
+    def generate_comprehensive_report(
+        self,
+        trace_ids: List[str],
+        entries: List[Dict[str, Any]],
+        dispute_text: str,
+        search_params: Dict[str, Any],
+        search_results: Dict[str, Any],
+        output_path: str,
+        max_traces: Optional[int] = None
+    ) -> str:
+        """
+        Write a comprehensive report that includes:
+          1) an overall quality assessment from the AI,
+          2) per-trace deep analyses from the AI,
+          3) the full chronological log timeline.
+
+        Parameters:
+        - trace_ids: all IDs we investigated
+        - entries: flat list of log-entry dicts (can mix multiple trace_ids)
+        - dispute_text: original user text
+        - search_params: dict of parameters used for searching
+        - search_results: dict of raw search results (e.g., total files, matches)
+        - output_path: where to write the final report
+        - max_traces: if set, limits how many trace_ids to analyze
+        """
+        # 1) Optionally cap the number of traces
+        if max_traces is not None:
+            trace_ids = trace_ids[:max_traces]
+
+        # 2) Sort entries by timestamp (None => earliest)
+        entries_sorted = sorted(entries, key=lambda e: e.get('timestamp') or dt.min)
+
+        # 3) Overall AI quality assessment
+        overall_quality = self._assess_overall_quality(
+            original_context=dispute_text,
+            search_results=search_results,
+            trace_data={
+                "all_trace_data": {
+                    tid: {
+                        "log_entries": [e for e in entries if e["trace_id"] == tid],
+                        "timeline": [],
+                        "source_files": []
+                    }
+                    for tid in trace_ids
+                }
+            },
+            parameters=search_params
+        )
+
+        # 4) Per‑trace AI analyses
+        trace_analyses: Dict[str, Dict[str, Any]] = {}
+        for tid in trace_ids:
+            trace_data = {
+                "log_entries": [e for e in entries if e["trace_id"] == tid],
+                "timeline": [],
+                "source_files": []
+            }
+            trace_analyses[tid] = self._analyze_single_trace(
+                trace_id=tid,
+                trace_data=trace_data,
+                original_context=dispute_text,
+                parameters=search_params
+            )
+
+        # 5) Write the combined report
+        gen_time = dt.now().strftime("%Y-%m-%d %H:%M:%S")
+        ids_line = ", ".join(trace_ids)
+
+        with open(output_path, 'w', encoding='utf-8') as out:
+            # HEADER
+            out.write("COMPREHENSIVE BANKING LOG ANALYSIS\n")
+            out.write("=" * 60 + "\n")
+            out.write(f"Generated:    {gen_time}\n")
+            out.write(f"Trace IDs:    {ids_line}\n")
+            out.write(f"Analysis LLM: {self.model}\n")
+            out.write("=" * 60 + "\n\n")
+
+            # EXECUTIVE SUMMARY (AI QUALITY ASSESSMENT)
+            out.write("EXECUTIVE SUMMARY (AI QUALITY ASSESSMENT)\n")
+            out.write("-" * 40 + "\n")
+            for k, v in overall_quality.items():
+                out.write(f"{k.replace('_', ' ').title():20}: {v}\n")
+            out.write(f"{'Total Entries':20}: {len(entries_sorted)}\n\n")
+
+            # ORIGINAL DISPUTE & SEARCH PARAMETERS
+            out.write("ORIGINAL DISPUTE\n")
+            out.write("-" * 20 + "\n")
+            out.write(dispute_text.strip() + "\n\n")
+
+            out.write("SEARCH PARAMETERS\n")
+            out.write("-" * 20 + "\n")
+            for k, v in search_params.items():
+                out.write(f"{k:20}: {v}\n")
+            out.write("\n")
+
+            # PER‑TRACE AI ANALYSIS
+            out.write("PER‑TRACE AI ANALYSIS\n")
+            out.write("-" * 20 + "\n")
+            for tid, analysis in trace_analyses.items():
+                out.write(f"Trace ID {tid} Analysis JSON:\n")
+                out.write(json.dumps(analysis, indent=2) + "\n\n")
+
+            # TRANSACTION TIMELINE (ALL LOGS)
+            out.write("TRANSACTION TIMELINE (ALL LOGS)\n")
+            out.write("-" * 40 + "\n")
+            for i, e in enumerate(entries_sorted, 1):
+                ts = e["timestamp"].strftime("%Y-%m-%d/%H:%M:%S") if e.get("timestamp") else "N/A"
+                lvl = e.get("level", "N/A")
+                svc = e.get("service_name", "N/A")
+                msg = (e.get("message") or "").replace("\n", " ")[:80]
+                out.write(f"{i:3}. {ts} | {lvl:5} | {svc:20} | {msg}...\n")
+            out.write("\n")
+
+        return output_path

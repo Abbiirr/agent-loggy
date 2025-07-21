@@ -16,6 +16,7 @@ from tools.loki.loki_trace_id_extractor import gather_logs_for_trace_ids, extrac
 from tools.loki.loki_query_builder import download_logs
 from datetime import datetime, timedelta
 from dateutil import parser as date_parser
+from tools.loki.loki_log_report_generator import generate_comprehensive_report, parse_loki_json
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,10 @@ class Orchestrator:
             "time_frame": "2025-07-15"
         }
         # STEP 2: File search
+        log_files = []
+        unique_filename = ""
+        search_date = ""
+        end_date_str = ""
         if project in ("MMBL", "UCB"):  # membership test replaces '||' :contentReference[oaicite:9]{index=9}
             logger.info("STEP 2: File search…")  # structured logging :contentReference[oaicite:10]{index=10}
             log_files = self.file_searcher.find_and_verify(params)
@@ -71,6 +76,7 @@ class Orchestrator:
 
         # STEP 3: Trace ID collection
         logger.info("STEP 3: Trace ID collection…")
+        unique_ids = []
         if project in ("MMBL", "UCB"):  # membership test replaces '||' :contentReference[oaicite:9]{index=9}
             patterns = params.get("query_keys", [])
             unique_ids: List[str] = []
@@ -83,78 +89,100 @@ class Orchestrator:
             await asyncio.sleep(0)
 
         elif project in ("NCC", "ABBL"):
-            query_keys = params.get("query_keys", [])
-            search_date = params.get("time_frame")
-            search_dt = date_parser.parse(search_date)
-            end_dt = search_dt + timedelta(days=1)
-            end_date_str = end_dt.date().isoformat()
-            unique_filename = f"{project}{env}_{search_date}_{uuid.uuid4().hex}.json"
-            download_logs(
-                filters={"service_namespace": project.lower()},
-                search=query_keys,
-                date_str=search_date,
-                end_date_str=end_date_str,
-                output=unique_filename
-            )
-            yield "Downloaded logs in file", {"filename": unique_filename}
+            unique_ids = extract_trace_ids(unique_filename)
+            yield "Found trace id(s)", {"found_trace_ids": unique_ids, "count": len(unique_ids)}
             await asyncio.sleep(0)
 
 
-        # # STEP 4: Compilation summary
-        # logger.info("STEP 4: Compiling full logs…")
-        # compiled: Dict[str, Dict[str, Any]] = {}
-        # summary_counts: Dict[str, int] = {}
-        #
-        # for trace_id in unique_ids:
-        #     entries: List[Dict[str, Any]] = []
-        #     timeline: List[Dict[str, Any]] = []
-        #     source_files: List[str] = []
-        #
-        #     # Gather from each file
-        #     for lf in log_files:
-        #         result = self.full_log_finder.find_all_logs_for_trace(lf, trace_id)
-        #         if result.get("total_entries", 0) > 0:
-        #             source_files.append(str(lf))
-        #             entries.extend(result.get("log_entries", []))
-        #             timeline.extend(result.get("timeline", []))
-        #
-        #     compiled[trace_id] = {
-        #         "log_entries": entries,
-        #         "timeline": timeline,
-        #         "source_files": source_files,
-        #         "total_entries": len(entries),
-        #     }
-        #     summary_counts[trace_id] = len(entries)
-        #
-        # yield "Compiled Request Traces", {
-        #     "traces_compiled": len(summary_counts),
-        #     "entries_per_trace": summary_counts
-        # }
-        # await asyncio.sleep(0)
+        # STEP 4: Compilation summary
+        logger.info("STEP 4: Compiling full logs…")
+
+        if project in ("MMBL", "UCB"):
+
+            compiled: Dict[str, Dict[str, Any]] = {}
+            summary_counts: Dict[str, int] = {}
+
+            for trace_id in unique_ids:
+                entries: List[Dict[str, Any]] = []
+                timeline: List[Dict[str, Any]] = []
+                source_files: List[str] = []
+
+                # Gather from each file
+                for lf in log_files:
+                    result = self.full_log_finder.find_all_logs_for_trace(lf, trace_id)
+                    if result.get("total_entries", 0) > 0:
+                        source_files.append(str(lf))
+                        entries.extend(result.get("log_entries", []))
+                        timeline.extend(result.get("timeline", []))
+
+                compiled[trace_id] = {
+                    "log_entries": entries,
+                    "timeline": timeline,
+                    "source_files": source_files,
+                    "total_entries": len(entries),
+                }
+                summary_counts[trace_id] = len(entries)
+
+            yield "Compiled Request Traces", {
+                "traces_compiled": len(summary_counts),
+                "entries_per_trace": summary_counts
+            }
+            await asyncio.sleep(0)
+
+        elif project in ("NCC", "ABBL"):
+            # — new branch using gather_logs_for_trace_ids —
+            # If gather_logs_for_trace_ids is blocking I/O, you can offload it:
+            log_files: List[str] = await asyncio.to_thread(
+                gather_logs_for_trace_ids,
+                filters={"service_namespace": project.lower()},
+                trace_ids=unique_ids,
+                date_str=search_date,
+                end_date_str=end_date_str
+            )
+
+            yield "Compiled Request Traces", {
+                "traces_compiled": len(log_files),
+                "trace_log_files": log_files
+            }
+            await asyncio.sleep(0)
 
         # STEP 5: Verification summary
         logger.info("STEP 5: Verification & file gen…")
-        # result = self.verify_agent.analyze_and_create_comprehensive_files(
-        #     original_context=text,
-        #     search_results={"unique_trace_ids": unique_ids},
-        #     trace_data={"all_trace_data": compiled},
-        #     parameters=params,
-        #     output_prefix="banking_analysis"
-        # )
-        yield "Compiled Summary", {
-            "created_files": [
-                "K:\\projects\\ai\\agent-loggy\\comprehensive_analysis\\banking_analysis_trace_e9706b05-7e8e-4025-b70c-a3028532daa9_20250719_170418.txt",
-                "K:\\projects\\ai\\agent-loggy\\comprehensive_analysis\\banking_analysis_trace_593a8560-91e7-4305-aff8-8b7b4f2fbe6d_20250719_170443.txt",
-                "K:\\projects\\ai\\agent-loggy\\comprehensive_analysis\\banking_analysis_trace_68184aaf-819a-466b-8450-b64dda7301cc_20250719_170505.txt",
-                "K:\\projects\\ai\\agent-loggy\\comprehensive_analysis\\banking_analysis_trace_04f67a7f-6c20-4849-b24e-735b1d30b91f_20250719_170536.txt",
-                "K:\\projects\\ai\\agent-loggy\\comprehensive_analysis\\banking_analysis_trace_8a9f15fd-2447-4faf-81d5-3295f6081f84_20250719_170603.txt",
-                "K:\\projects\\ai\\agent-loggy\\comprehensive_analysis\\banking_analysis_trace_92e1f051-f275-4133-ad29-61289b0b264a_20250719_170626.txt",
-                "K:\\projects\\ai\\agent-loggy\\comprehensive_analysis\\banking_analysis_trace_23a7a0f8-ff3a-45bb-ab99-0c168abd5c33_20250719_170647.txt",
-                "K:\\projects\\ai\\agent-loggy\\comprehensive_analysis\\banking_analysis_trace_b4ac2069-bfd5-47cf-9e87-8e97518b9242_20250719_170720.txt"
-            ],
-            "master_summary_file": "K:\\projects\\ai\\agent-loggy\\comprehensive_analysis\\banking_analysis_trace_b4ac2069-bfd5-47cf-9e87-8e97518b9242_20250719_170720.txt"
-        }
-        await asyncio.sleep(0)
+        if project in ("MMBL", "UCB"):  # membership test replaces '||' :contentReference[oaicite:9]{index=9}
+            result = self.verify_agent.analyze_and_create_comprehensive_files(
+                original_context=text,
+                search_results={"unique_trace_ids": unique_ids},
+                trace_data={"all_trace_data": compiled},
+                parameters=params,
+                output_prefix="banking_analysis"
+            )
+            yield "Compiled Summary", {
+                "created_files": result.get("comprehensive_files_created", []),
+                "master_summary_file": result.get("master_summary_file")
+            }
+            await asyncio.sleep(0)
+
+        elif project in ("NCC", "ABBL"):
+            entries = parse_loki_json(log_files)
+            report_path = self.verify_agent.generate_comprehensive_report(
+                trace_ids=unique_ids,
+                entries=entries,
+                dispute_text=text,
+                search_params=params,
+                search_results={"unique_trace_ids": unique_ids},
+                output_path = r"K:\projects\ai\agent-loggy\comprehensive_analysis\comprehensive_report.txt",
+                max_traces=3
+            )
+            # wrap it so your yield still sees the same keys
+            result = {
+                "comprehensive_files_created": [report_path],
+                "master_summary_file": report_path
+            }
+            yield "Compiled Summary", {
+                "created_files": result["comprehensive_files_created"],
+                "master_summary_file": result["master_summary_file"]
+            }
+            await asyncio.sleep(0)
 
         # DONE
         yield "done", {"message": "Analysis complete."}

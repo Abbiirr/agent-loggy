@@ -155,12 +155,16 @@ def download_logs(
     """
     Execute the curl via subprocess, avoiding shell parsing issues.
     """
-    arg_list = build_curl_args(*args, **kwargs)
-    # Use build_curl_command to get the nice formatted string
-    curl_str = build_curl_command(*args, **kwargs)
-    print("Running:")
-    print(curl_str)
-    subprocess.run(arg_list, check=True)
+    try:
+        arg_list = build_curl_args(*args, **kwargs)
+        # Use build_curl_command to get the nicely formatted string
+        curl_str = build_curl_command(*args, **kwargs)
+        print("Running:")
+        print(curl_str)
+        subprocess.run(arg_list, check=True)
+    except Exception as e:
+        print(f"Error executing curl command: {e}")
+
 
 
 # Example usage

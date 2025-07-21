@@ -75,6 +75,8 @@ class ChatResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     prompt: str
+    project: str
+    env: str
 
 
 class ChatResponse(BaseModel):
@@ -177,6 +179,8 @@ async def chat(req: ChatRequest):
     # Store the prompt for this session
     active_sessions[session_id] = {
         "prompt": req.prompt,
+        "project": req.project,
+        "env": req.env,
         "status": "pending"
     }
 
@@ -196,6 +200,8 @@ async def chat_stream(session_id: str):
 
     session = active_sessions[session_id]
     prompt = session["prompt"]
+    project = session["project"]
+    env = session["env"]
 
     async def event_generator():
         try:

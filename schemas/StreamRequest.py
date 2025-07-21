@@ -10,3 +10,11 @@ class StreamRequest(BaseModel):
             "Bank Ultimas report. Investigate and explain the discrepancy."
         )
     )
+    project: str = Field(
+        default="NCC",
+        description="The project name for which the stream request is made."
+    )
+    env : str = Field(
+        default="DEV",
+        description="The environment for the project (e.g., production, staging)."
+    )

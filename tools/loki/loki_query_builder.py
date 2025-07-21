@@ -31,36 +31,43 @@ def _parse_single_datetime(date_str: str, time_str: Union[str, None] = None) -> 
 
 
 def build_curl_args(
-        filters: Union[Dict[str, str], None] = None,
-        pipeline: Union[Dict[str, str], List[str], None] = None,
-        search: Union[str, List[str], None] = None,
-        date_str: Union[str, None] = None,
-        time_str: Union[str, None] = None,
-        end_date_str: Union[str, None] = None,
-        end_time_str: Union[str, None] = None,
-        output: Union[str, None] = None,
-        base_url: str = BASE_URL,
+    filters: Union[Dict[str, str], None] = None,
+    pipeline: Union[Dict[str, str], List[str], None] = None,
+    search: Union[str, List[str], None] = None,
+    date_str: Union[str, None] = None,
+    time_str: Union[str, None] = None,
+    end_date_str: Union[str, None] = None,
+    end_time_str: Union[str, None] = None,
+    output: Union[str, None] = None,
+    base_url: str = BASE_URL,
 ) -> List[str]:
     """
     Return a list of curl args for Loki query, ready for subprocess.
     """
-    # Build LogQL selector
+    # 1) Build LogQL selector with filters & pipeline (unchanged) …
     sel = "{" + ",".join(f'{k}="{v}"' for k, v in (filters or {}).items()) + "}"
     if pipeline:
-        items = (pipeline.items() if isinstance(pipeline, dict) else pipeline)
+        items = pipeline.items() if isinstance(pipeline, dict) else pipeline
         for entry in items:
             if isinstance(entry, tuple):
                 k, v = entry
                 sel += f' | {k}="{v}"'
             else:
                 sel += f' | {entry}'
+
+    # 2) Handle search terms: single vs. multiple as OR
     if search:
-        terms = [search] if isinstance(search, str) else search
-        for term in terms:
-            esc = term.replace('"', '\\"')
+        if isinstance(search, (list, tuple)):
+            # escape quotes in each term
+            esc_terms = [term.replace('"', '\\"') for term in search]
+            # join under one '|=' operator
+            joined = " or ".join(f'"{t}"' for t in esc_terms)
+            sel += f' |= {joined}'
+        else:
+            esc = search.replace('"', '\\"')
             sel += f' |= "{esc}"'
 
-    # Time range
+    # 3) Time range logic (unchanged) …
     if date_str:
         start_dt = _parse_single_datetime(date_str, time_str)
         if end_date_str:
@@ -73,16 +80,19 @@ def build_curl_args(
         start_dt = end_dt - timedelta(days=1)
 
     start = start_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
-    end = end_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+    end   = end_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    # Build arg list
-    args = ["curl", "-G", base_url,
-            "--data-urlencode", f"query={sel}",
-            "--data-urlencode", f"start={start}",
-            "--data-urlencode", f"end={end}"]
+    # 4) Build curl args
+    args = [
+        "curl", "-G", base_url,
+        "--data-urlencode", f"query={sel}",
+        "--data-urlencode", f"start={start}",
+        "--data-urlencode", f"end={end}"
+    ]
     if output:
         args += ["-o", output]
     return args
+
 
 
 def build_curl_command(

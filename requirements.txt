@@ -5,3 +5,5 @@ uvicorn[standard]
 sse-starlette
 pydantic
 requests
+python-dateutil
+regex

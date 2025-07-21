@@ -209,7 +209,7 @@ async def chat_stream(session_id: str):
             active_sessions[session_id]["status"] = "streaming"
 
             # Stream each orchestrator step
-            async for step, payload in orchestrator.analyze_stream(prompt):
+            async for step, payload in orchestrator.analyze_stream(prompt, project, env):
                 # Only yield if we have valid data
                 if step and payload is not None:
                     try:
@@ -253,7 +253,7 @@ async def stream_analysis(req: StreamRequest):
 
     async def event_generator():
         # Stream each orchestrator step
-        async for step, payload in orchestrator.analyze_stream(text):
+        async for step, payload in orchestrator.analyze_stream(text, req.project, req.env):
             # Only yield if we have valid data
             if step and payload is not None:
                 try:

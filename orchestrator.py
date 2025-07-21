@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import json
+import uuid
 from pathlib import Path
 from typing import Dict, List, Any
 
@@ -11,6 +12,10 @@ from agents.file_searcher import FileSearcher
 from tools.log_searcher import LogSearcher
 from tools.full_log_finder import FullLogFinder
 from agents.verify_agent import VerifyAgent
+from tools.loki.loki_trace_id_extractor import gather_logs_for_trace_ids, extract_trace_ids
+from tools.loki.loki_query_builder import download_logs
+from datetime import datetime, timedelta
+from dateutil import parser as date_parser
 
 logger = logging.getLogger(__name__)
 
@@ -27,32 +32,74 @@ class Orchestrator:
         self.full_log_finder = FullLogFinder()
         self.verify_agent = VerifyAgent(client, model, output_dir="comprehensive_analysis")
 
-    async def analyze_stream(self, text: str):
-        # # STEP 1: Parameter extraction
-        # logger.info("STEP 1: Parameter extraction…")
+    async def analyze_stream(self, text: str, project: str , env: str ) -> Dict[str, Any]:
+        # STEP 1: Parameter extraction
+        logger.info("STEP 1: Parameter extraction…")
         # params = self.param_agent.run(text)
         # yield "Extracted Parameters", {"parameters": params}
         # await asyncio.sleep(0)
-        #
-        # # STEP 2: File search
-        # logger.info("STEP 2: File search…")
-        # log_files = self.file_searcher.find_and_verify(params)
-        # files = [str(f) for f in log_files]
-        # yield "Found relevant files", {"found_files": files, "total_files": len(files)}
-        # await asyncio.sleep(0)
-        #
-        # # STEP 3: Trace ID collection
-        # logger.info("STEP 3: Trace ID collection…")
-        # patterns = params.get("query_keys", [])
-        # unique_ids: List[str] = []
-        # for lf in log_files:
-        #     for r in self.log_searcher.search_with_trace_ids(lf, patterns):
-        #         tid = r.get("trace_id")
-        #         if tid and tid not in unique_ids:
-        #             unique_ids.append(tid)
-        # yield "Found trace id(s)", {"found_trace_ids": unique_ids, "count": len(unique_ids)}
-        # await asyncio.sleep(0)
-        #
+        params = {
+            "domain": "transactions",
+            "query_keys": ["merchant", "amount", "date"],
+            "time_frame": "2025-07-15"
+        }
+        # STEP 2: File search
+        if project in ("MMBL", "UCB"):  # membership test replaces '||' :contentReference[oaicite:9]{index=9}
+            logger.info("STEP 2: File search…")  # structured logging :contentReference[oaicite:10]{index=10}
+            log_files = self.file_searcher.find_and_verify(params)
+            files = [str(f) for f in log_files]
+            yield "Found relevant files", {"found_files": files, "total_files": len(files)}
+            await asyncio.sleep(0)  # yield control without blocking :contentReference[oaicite:11]{index=11}
+
+        elif project in ("NCC", "ABBL"):
+            logger.info("STEP 2: Loki search…")
+            query_keys = params.get("query_keys", [])
+            search_date = params.get("time_frame")
+            search_dt = date_parser.parse(search_date)
+            end_dt = search_dt + timedelta(days=1)
+            end_date_str = end_dt.date().isoformat()
+            unique_filename = f"{project}{env}_{search_date}_{uuid.uuid4().hex}.json"
+            download_logs(
+                filters={"service_namespace": project.lower()},
+                search=query_keys,
+                date_str=search_date,
+                end_date_str=end_date_str,
+                output=unique_filename
+            )
+            yield "Downloaded logs in file", {"filename": unique_filename}
+            await asyncio.sleep(0)
+
+        # STEP 3: Trace ID collection
+        logger.info("STEP 3: Trace ID collection…")
+        if project in ("MMBL", "UCB"):  # membership test replaces '||' :contentReference[oaicite:9]{index=9}
+            patterns = params.get("query_keys", [])
+            unique_ids: List[str] = []
+            for lf in log_files:
+                for r in self.log_searcher.search_with_trace_ids(lf, patterns):
+                    tid = r.get("trace_id")
+                    if tid and tid not in unique_ids:
+                        unique_ids.append(tid)
+            yield "Found trace id(s)", {"found_trace_ids": unique_ids, "count": len(unique_ids)}
+            await asyncio.sleep(0)
+
+        elif project in ("NCC", "ABBL"):
+            query_keys = params.get("query_keys", [])
+            search_date = params.get("time_frame")
+            search_dt = date_parser.parse(search_date)
+            end_dt = search_dt + timedelta(days=1)
+            end_date_str = end_dt.date().isoformat()
+            unique_filename = f"{project}{env}_{search_date}_{uuid.uuid4().hex}.json"
+            download_logs(
+                filters={"service_namespace": project.lower()},
+                search=query_keys,
+                date_str=search_date,
+                end_date_str=end_date_str,
+                output=unique_filename
+            )
+            yield "Downloaded logs in file", {"filename": unique_filename}
+            await asyncio.sleep(0)
+
+
         # # STEP 4: Compilation summary
         # logger.info("STEP 4: Compiling full logs…")
         # compiled: Dict[str, Dict[str, Any]] = {}

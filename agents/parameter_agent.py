@@ -1,9 +1,10 @@
 import json
 import logging
-import re
+import regex as re
 import sys
 
 import httpx
+from dateutil import parser as date_parser
 from ollama import Client
 
 logger = logging.getLogger(__name__)
@@ -34,24 +35,51 @@ class ParametersAgent:
             sys.exit(1)
 
         prompt = (
-            "You are a parameter extractor. Output valid JSON with keys: time_frame, domain, query_keys."
-            f"\nUser text: {text}"
+            f"""You are a parameter extractor. Extract parameters and output ONLY valid JSON in this exact format:
+
+{{"time_frame": "YYYY-MM-DD or null", "domain": "domain_name", "query_keys": ["key1", "key2", "key3"]}}
+
+RULES:
+1. query_keys must be a flat array of strings - NO nested objects or arrays
+2. Each query_key should be a simple field name (e.g., "merchant", "amount", "date")
+3. Domain should be the main data category (e.g., "transactions", "users", "products")
+4. If no time mentioned, set time_frame to null
+
+EXAMPLES:
+User: "Show me merchant transactions over $500 last week"
+Output: {{"time_frame": "2025-07-14", "domain": "transactions", "query_keys": ["merchant", "amount", "date"]}}
+
+User: "Find customers who bought electronics in January"
+Output: {{"time_frame": "2025-01-01", "domain": "customers", "query_keys": ["customer_id", "product_category", "purchase_date"]}}
+
+User: "List all product reviews with ratings"
+Output: {{"time_frame": null, "domain": "reviews", "query_keys": ["product_id", "rating", "review_text"]}}
+
+User text: {text}
+
+Output only the JSON, no explanations:"""
         )
         resp = self.client.chat(
             model=self.model,
-            messages=[
-                {"role": "system", "content": prompt},
-            ],
+            messages=[{"role": "system", "content": prompt}],
         )
-        raw = resp["message"]["content"].strip()
+        raw = resp["message"]["content"]
         logger.debug("Raw parameters output: %s", raw)
+
+        # 1. Pull out the JSON blob, wherever it is
+
         try:
-            params = json.loads(raw)
+            json_blob = self._extract_json_block(raw)
+            params = json.loads(json_blob)
         except json.JSONDecodeError:
             logger.error("JSON parse error, falling back to regex extraction.")
             params = self._fallback(text)
 
-        # Enforce DOMAIN_KEYWORDS
+        # 2. Normalize the date field
+        if "time_frame" in params and isinstance(params["time_frame"], str):
+            params["time_frame"] = self._normalize_date(params["time_frame"])
+
+        # 3. Enforce DOMAIN_KEYWORDS as before
         text_upper = text.upper()
         forced = [kw for kw in DOMAIN_KEYWORDS if kw in text_upper]
         if forced:
@@ -60,17 +88,45 @@ class ParametersAgent:
 
         return params
 
+    def _extract_json_block(self, raw: str) -> str:
+        """
+        Finds the first JSON object in the raw string, whether it's
+        inside ```json``` fences or between the first { … }.
+        """
+        # 1) Try finding a fenced JSON block
+        fenced = re.search(r"```json\s*(\{.*?\})\s*```", raw, flags=re.DOTALL)
+        if fenced:
+            return fenced.group(1)
+
+        # 2) Otherwise, grab the first {...}
+        simple = re.search(r"(\{(?:[^{}]|(?1))*\})", raw, flags=re.DOTALL)
+        if simple:
+            return simple.group(1)
+
+        # 3) Give up — return whole text (likely to fail JSON parse)
+        return raw.strip()
+
+    def _normalize_date(self, date_str: str) -> str:
+        """
+        Turn any human‑readable date into YYYY‑MM‑DD.
+        If parsing fails, returns the original string.
+        """
+        try:
+            dt = date_parser.parse(date_str, dayfirst=True, fuzzy=True)
+            return dt.strftime("%Y-%m-%d")
+        except (ValueError, TypeError) as e:
+            logger.warning("Could not parse date '%s': %s", date_str, e)
+            return date_str
+
     def _fallback(self, text: str) -> dict:
-        # Simple regex-based fallback extraction
+        # Simple regex-based fallback extraction, as before
         result = {"time_frame": "", "domain": "", "query_keys": []}
         date_match = re.search(r"\b\d{1,2}\.\d{1,2}\.\d{4}\b", text)
         if date_match:
             result["time_frame"] = date_match.group(0)
-        # domain keywords
         found = [kw for kw in DOMAIN_KEYWORDS if kw in text.upper()]
         if found:
             result["domain"] = ", ".join(found)
-        # account numbers
         accounts = re.findall(r"\b\d{10,}\b", text)
         result["query_keys"] = accounts
         return result

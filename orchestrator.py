@@ -33,7 +33,7 @@ class Orchestrator:
         self.full_log_finder = FullLogFinder()
         self.verify_agent = VerifyAgent(client, model, output_dir="comprehensive_analysis")
 
-    async def analyze_stream(self, text: str, project: str , env: str ) -> Dict[str, Any]:
+    async def analyze_stream(self, text: str, project: str , env: str, domain: str ) -> Dict[str, Any]:
         # STEP 1: Parameter extraction
         logger.info("STEP 1: Parameter extraction…")
         # params = self.param_agent.run(text)

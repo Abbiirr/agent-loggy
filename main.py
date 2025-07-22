@@ -77,6 +77,7 @@ class ChatRequest(BaseModel):
     prompt: str
     project: str
     env: str
+    domain: str
 
 
 class ChatResponse(BaseModel):
@@ -85,87 +86,6 @@ class ChatResponse(BaseModel):
 
 # Store active sessions (in production, use Redis or proper session management)
 active_sessions = {}
-
-
-@app.post("/test-sse")
-async def test_sse():
-    """
-    Simple test endpoint to verify SSE formatting works correctly
-    """
-
-    async def event_generator():
-        # Test different event types
-        test_events = [
-            ("test_event", {"message": "This is a test event"}),
-            ("progress", {"step": "Processing", "percentage": 25}),
-            ("data_found", {"files": ["file1.log", "file2.log"], "count": 2}),
-            ("completed", {"status": "success", "message": "Test completed"})
-        ]
-
-        for step, payload in test_events:
-            data = json.dumps(payload, default=str, ensure_ascii=False)
-            yield {
-                "event": step,
-                "data": data
-            }
-            # Small delay for realistic streaming
-            import asyncio
-            await asyncio.sleep(0.5)
-
-    return EventSourceResponse(event_generator())
-
-
-@app.post("/debug/analyze")
-async def debug_analyze(req: StreamRequest):
-    """
-    Debug endpoint to see what the orchestrator returns
-    """
-    text = req.text
-    results = []
-
-    try:
-        async for step, payload in orchestrator.analyze_stream(text):
-            result = {
-                "step_raw": repr(step),
-                "step_type": str(type(step).__name__),
-                "payload_raw": repr(payload),
-                "payload_type": str(type(payload).__name__),
-                "step_str": str(step) if step else "None",
-                "payload_str": str(payload)[:500] + "..." if payload and len(str(payload)) > 500 else str(payload)
-            }
-            results.append(result)
-
-            # Limit to first 20 items for debugging
-            if len(results) >= 20:
-                break
-    except Exception as e:
-        return {"error": f"Error during orchestrator stream: {str(e)}", "debug_results": results}
-
-    return {"debug_results": results, "total_items": len(results)}
-
-
-@app.post("/test-sse")
-async def test_sse():
-    """
-    Simple test endpoint to verify SSE formatting
-    """
-
-    async def event_generator():
-        # Test different event types
-        test_events = [
-            ("test_event", {"message": "This is a test event"}),
-            ("another_event", {"data": "Some test data", "count": 42}),
-            ("final_event", {"status": "completed"})
-        ]
-
-        for step, payload in test_events:
-            data = json.dumps(payload, default=str, ensure_ascii=False)
-            sse_event = f"event: {step}\ndata: {data}\n\n"
-            yield sse_event
-            await asyncio.sleep(0.1)  # Small delay for testing
-
-    return EventSourceResponse(event_generator())
-
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
@@ -181,6 +101,7 @@ async def chat(req: ChatRequest):
         "prompt": req.prompt,
         "project": req.project,
         "env": req.env,
+        "domain": req.domain,
         "status": "pending"
     }
 
@@ -201,6 +122,7 @@ async def chat_stream(session_id: str):
     session = active_sessions[session_id]
     prompt = session["prompt"]
     project = session["project"]
+    domain = session["domain"]
     env = session["env"]
 
     async def event_generator():
@@ -209,7 +131,7 @@ async def chat_stream(session_id: str):
             active_sessions[session_id]["status"] = "streaming"
 
             # Stream each orchestrator step
-            async for step, payload in orchestrator.analyze_stream(prompt, project, env):
+            async for step, payload in orchestrator.analyze_stream(prompt, project, env, domain):
                 # Only yield if we have valid data
                 if step and payload is not None:
                     try:
@@ -253,7 +175,7 @@ async def stream_analysis(req: StreamRequest):
 
     async def event_generator():
         # Stream each orchestrator step
-        async for step, payload in orchestrator.analyze_stream(text, req.project, req.env):
+        async for step, payload in orchestrator.analyze_stream(text, req.project, req.env, req.domain):
             # Only yield if we have valid data
             if step and payload is not None:
                 try:

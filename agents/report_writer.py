@@ -431,7 +431,7 @@ class ReportWriter:
         f.write("-" * 25 + "\n")
         f.write(f"Key Finding: {expert_analysis.get('key_finding', 'No specific findings identified')}\n\n")
         f.write(
-            f"Transaction Summary: {expert_analysis.get('transaction_summary', 'Transaction analysis not available')}\n\n")
+            f"Transaction Summary: {expert_analysis.get('request_summary', 'Transaction analysis not available')}\n\n")
         f.write(
             f"Root Cause Analysis: {expert_analysis.get('root_cause_analysis', 'Root cause analysis not available')}\n\n")
 
@@ -448,17 +448,8 @@ class ReportWriter:
         f.write("-" * 14 + "\n")
         f.write(f"Timeline Summary: {expert_analysis.get('timeline_summary', 'Timeline analysis not available')}\n\n")
 
-        # High-level events
-        key_events = self._extract_key_events(trace_entries)
-        f.write("High-Level Event Flow:\n")
-        for i, event in enumerate(key_events, 1):
-            f.write(
-                f"  {i:2d}. {event['timestamp']} [{event.get('severity', 'INFO'):5}] {event.get('event_type', 'unknown'):15} | {event['description']}\n")
-            if event.get('method') and event['method'] != 'N/A':
-                f.write(f"      Method: {event['method']}\n")
-            if event.get('service') and event['service'] != 'Unknown':
-                f.write(f"      Service: {event['service']}\n")
-        f.write("\n")
+        # High-level event flow with new format
+        self._write_high_level_event_flow(f, trace_entries)
 
         # Complete Chronological Logs
         f.write("COMPLETE CHRONOLOGICAL LOG ENTRIES\n")
@@ -468,22 +459,61 @@ class ReportWriter:
             f.write(f"LOG ENTRY #{i}\n")
             f.write("-" * 15 + "\n")
 
-            timestamp = entry.get('timestamp', 'N/A')
+            # Handle timestamp extraction for both formats
+            timestamp = 'N/A'
+            if 'timestamp' in entry:
+                timestamp = entry['timestamp']
+            elif 'values' in entry and entry['values'] and len(entry['values']) > 0:
+                try:
+                    # For Loki format, timestamp is in values[0][0]
+                    timestamp_ns = entry['values'][0][0]
+                    if isinstance(timestamp_ns, str) and len(timestamp_ns) > 10:
+                        timestamp_sec = int(timestamp_ns) / 1e9
+                        from datetime import datetime
+                        timestamp = datetime.fromtimestamp(timestamp_sec)
+                except:
+                    pass
+
             if hasattr(timestamp, 'strftime'):
                 timestamp = timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
+            # Handle service name extraction
+            service_name = 'Unknown'
+            if 'service_name' in entry:
+                service_name = entry['service_name']
+            elif 'stream' in entry and 'service_name' in entry['stream']:
+                service_name = entry['stream']['service_name']
+
+            # Handle severity/level extraction
+            level = 'Unknown'
+            if 'severity_text' in entry:
+                level = entry['severity_text']
+            elif 'stream' in entry and 'severity_text' in entry['stream']:
+                level = entry['stream']['severity_text']
+            elif 'level' in entry:
+                level = entry['level']
+
             f.write(f"Timestamp: {timestamp}\n")
-            f.write(f"Service: {entry.get('service_name', 'Unknown')}\n")
-            f.write(f"Level: {entry.get('severity_text', entry.get('level', 'Unknown'))}\n")
+            f.write(f"Service: {service_name}\n")
+            f.write(f"Level: {level}\n")
             f.write(f"Thread: {entry.get('thread_name', 'Unknown')}\n")
             f.write("\nLog Content:\n")
             f.write("-" * 12 + "\n")
 
-            # Get content
-            content = (entry.get('message') or
-                       entry.get('raw_content') or
-                       entry.get('original_xml') or
-                       "No content available")
+            # Get content - handle Loki format
+            content = 'No content available'
+            if 'values' in entry and entry['values'] and len(entry['values']) > 0:
+                try:
+                    content = entry['values'][0][1]
+                except:
+                    pass
+            elif 'message' in entry:
+                content = entry['message']
+            elif 'raw_content' in entry:
+                content = entry['raw_content']
+            elif 'original_xml' in entry:
+                content = entry['original_xml']
+
             f.write(content)
             f.write("\n\n" + "=" * 60 + "\n\n")
 
@@ -573,58 +603,165 @@ class ReportWriter:
         """Extract key events from trace entries with detailed banking system information."""
         key_events = []
 
-        for entry in trace_entries[:20]:  # Look at more entries for better coverage
-            # Get the log message content
-            message = entry.get('message', '') or entry.get('raw_content', '')
+        for entry in trace_entries:
+            # Skip entries without proper data
+            if not entry:
+                continue
+
+            # Extract timestamp - handle both direct timestamp and nested values structure
+            timestamp = None
+            if 'timestamp' in entry:
+                timestamp = entry['timestamp']
+            elif 'values' in entry and entry['values'] and len(entry['values']) > 0:
+                # For Loki format, timestamp might be in values[0][0]
+                try:
+                    timestamp = entry['values'][0][0]
+                    # Convert nanosecond timestamp to datetime if needed
+                    if isinstance(timestamp, str) and len(timestamp) > 10:
+                        # Assuming nanosecond timestamp
+                        timestamp_sec = int(timestamp) / 1e9
+                        from datetime import datetime
+                        timestamp = datetime.fromtimestamp(timestamp_sec)
+                except:
+                    pass
+
+            # Format timestamp
+            if hasattr(timestamp, 'strftime'):
+                timestamp_str = timestamp.strftime('%H:%M:%S.%f')[:-3]
+            elif timestamp:
+                timestamp_str = str(timestamp)
+            else:
+                timestamp_str = 'N/A'
+
+            # Extract service name - handle both direct and nested stream structure
+            service_name = 'Unknown'
+            if 'service_name' in entry:
+                service_name = entry['service_name']
+            elif 'stream' in entry and 'service_name' in entry['stream']:
+                service_name = entry['stream']['service_name']
+
+            # Extract message content
+            message = ''
+            if 'message' in entry:
+                message = entry['message']
+            elif 'values' in entry and entry['values'] and len(entry['values']) > 0:
+                # For Loki format, message is in values[0][1]
+                try:
+                    message = entry['values'][0][1]
+                except:
+                    pass
+            elif 'raw_content' in entry:
+                message = entry['raw_content']
+
             if not message:
                 continue
 
-            # Extract timestamp
-            timestamp = entry.get('timestamp', 'N/A')
-            if hasattr(timestamp, 'strftime'):
-                timestamp = timestamp.strftime('%H:%M:%S.%f')[:-3]  # Include milliseconds
+            # Extract method name and create formatted entry
+            method_info = self._extract_method_info_from_message(message)
 
-            # Get service and severity info
-            service_name = entry.get('service_name', 'Unknown')
-            severity = entry.get('severity_text', entry.get('level', 'INFO'))
-
-            # Extract method name from message if present
-            method_name = self._extract_method_name(message)
-
-            # Classify the event type and create detailed description
-            event_type, description = self._classify_banking_event(message, method_name, service_name)
-
-            if description:
+            if method_info:
                 key_events.append({
-                    'timestamp': str(timestamp),
-                    'description': description,
-                    'event_type': event_type,
+                    'timestamp': timestamp_str,
                     'service': service_name,
-                    'severity': severity,
-                    'method': method_name or 'N/A'
+                    'method': method_info,
+                    'raw_message': message  # Keep raw message for debugging
                 })
 
         return key_events
 
-    def _extract_method_name(self, message: str) -> Optional[str]:
-        """Extract Java method name from log message."""
+    def _extract_method_info_from_message(self, message: str) -> Optional[str]:
+        """Extract method information from log message."""
         if not message:
             return None
 
-        # Pattern for Java class.method names (com.company.package.Class.method)
-        method_patterns = [
-            r'(com\.[a-zA-Z0-9_.]+\.[A-Z][a-zA-Z0-9_]*\.[a-zA-Z][a-zA-Z0-9_]*)',  # Full qualified method
-            r'([A-Z][a-zA-Z0-9_]*\.[a-zA-Z][a-zA-Z0-9_]*)',  # Class.method
-            r'Invoking\s*:\s*.*?([A-Z][a-zA-Z0-9_]*\.[a-zA-Z][a-zA-Z0-9_]*)',  # Invoking: ... Class.method
-            r'Executed\s+([^.\s]+\.[^.\s]+\.[a-zA-Z][a-zA-Z0-9_]*)',  # Executed proxy.Class.method
-        ]
+        # Pattern 1: "Invocation Returned: com.package.Class.method Response:"
+        match = re.search(r'Invocation Returned:\s*([^\s]+)(?:\s+Response)?', message)
+        if match:
+            method_info = match.group(1).strip()
+            # Remove trailing "Response:" if it got captured
+            if method_info.endswith('Response:'):
+                method_info = method_info[:-9].strip()
+            return method_info
 
-        for pattern in method_patterns:
-            match = re.search(pattern, message)
+        # Pattern 2: "Invoking : \nClass: com.package.Class \nMethod: methodName"
+        # This handles multi-line format with actual newlines
+        match = re.search(r'Invoking\s*:\s*\nClass:\s*([^\s\n]+)\s*\nMethod:\s*([^\s\n]+)', message)
+        if match:
+            class_name = match.group(1).strip()
+            method_name = match.group(2).strip()
+            return f"{class_name}.{method_name}"
+
+        # Pattern 2b: Handle when it's all on one line or with different separators
+        match = re.search(r'Class:\s*([^\s]+)\s+Method:\s*([^\s]+)', message)
+        if match:
+            class_name = match.group(1).strip()
+            method_name = match.group(2).strip()
+            return f"{class_name}.{method_name}"
+
+        # Pattern 3: "Executed class.method in X milliseconds"
+        match = re.search(r'Executed\s+([^\s]+)\s+in\s+\d+\s+milliseconds?', message)
+        if match:
+            return match.group(1).strip()
+
+        # Pattern 4: Look for general class.method patterns
+        match = re.search(r'(com\.[a-zA-Z0-9_.]+\.[A-Z][a-zA-Z0-9_]*\.[a-zA-Z][a-zA-Z0-9_]*)', message)
+        if match:
+            return match.group(1).strip()
+
+        # Pattern 5: Look for proxy patterns
+        match = re.search(r'(jdk\.proxy[0-9]*\.\$Proxy[0-9]+\.[a-zA-Z][a-zA-Z0-9_]*)', message)
+        if match:
+            return match.group(1).strip()
+
+        # Pattern 6: Handle "REQUEST:" pattern for HTTP requests
+        if 'REQUEST:' in message and 'PATH=' in message:
+            match = re.search(r'PATH=([^\s,]+)', message)
             if match:
-                return match.group(1)
+                path = match.group(1).strip()
+                return f"HTTP GET {path}"
+
+        # If no specific pattern found but message seems relevant, return a cleaned version
+        if any(keyword in message.lower() for keyword in ['invok', 'execut', 'return', 'response', 'request']):
+            # Clean up the message for display
+            clean_msg = message.replace('\n', ' ').strip()
+            # Remove extra spaces
+            clean_msg = ' '.join(clean_msg.split())
+            return clean_msg
 
         return None
+
+    def _write_high_level_event_flow(self, file_handle, trace_entries: List[Dict[str, Any]]):
+        """Write a formatted high-level event flow section."""
+        f = file_handle
+
+        # Extract key events
+        key_events = self._extract_key_events(trace_entries)
+
+        if not key_events:
+            f.write("No key events found in trace.\n")
+            return
+
+        f.write("High-Level Event Flow:\n")
+        f.write("-" * 120 + "\n")
+        f.write("Time         | Service                      | Method/Operation\n")
+        f.write("-" * 120 + "\n")
+
+        for i, event in enumerate(key_events, 1):
+            time_str = event['timestamp']
+            service = event['service']
+            method = event['method']
+
+            # Format for alignment - truncate service name if too long
+            time_col = f"{time_str:<12}"
+            service_col = f"{service[:28]:<28}"  # Truncate to 28 chars if needed
+
+            # For method, allow it to be longer since it's the last column
+            method_col = method
+
+            f.write(f"{time_col} | {service_col} | {method_col}\n")
+
+        f.write("-" * 120 + "\n")
+        f.write(f"Total Events: {len(key_events)}\n\n")
 
     def _classify_banking_event(self, message: str, method_name: str, service_name: str) -> tuple:
         """Classify banking system events and create detailed descriptions."""

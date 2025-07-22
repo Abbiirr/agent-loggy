@@ -433,10 +433,66 @@ JSON format:
 
     def _parse_log_file(self, file_path: str) -> List[Dict[str, Any]]:
         """Parse a single log file and return list of log entries."""
-        # This would use your existing parse_loki_json function
-        # For now, assuming it returns a list of dict entries
-        from tools.loki.loki_log_analyser import parse_loki_json  # Replace with actual import
-        return parse_loki_json([file_path])
+        import json
+        from datetime import datetime
+
+        entries = []
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # Check if this is Loki format
+            if 'data' in data and 'result' in data['data']:
+                results = data['data']['result']
+
+                for result in results:
+                    if 'stream' in result and 'values' in result:
+                        stream_metadata = result['stream']
+                        values = result['values']
+
+                        for value_pair in values:
+                            if len(value_pair) >= 2:
+                                timestamp_ns = value_pair[0]
+                                message = value_pair[1]
+
+                                # Convert nanosecond timestamp to datetime
+                                timestamp = None
+                                try:
+                                    if isinstance(timestamp_ns, str):
+                                        timestamp_sec = int(timestamp_ns) / 1e9
+                                        timestamp = datetime.fromtimestamp(timestamp_sec)
+                                except:
+                                    timestamp = timestamp_ns
+
+                                # Create entry with both stream metadata and values
+                                entry = {
+                                    'timestamp': timestamp,
+                                    'message': message,
+                                    'service_name': stream_metadata.get('service_name', 'Unknown'),
+                                    'severity_text': stream_metadata.get('severity_text', 'INFO'),
+                                    'trace_id': stream_metadata.get('trace_id'),
+                                    'span_id': stream_metadata.get('span_id'),
+                                    'host_name': stream_metadata.get('host_name'),
+                                    'service_namespace': stream_metadata.get('service_namespace'),
+                                    # Store original structure for compatibility
+                                    'stream': stream_metadata,
+                                    'values': [value_pair],
+                                    'raw_content': message
+                                }
+
+                                entries.append(entry)
+
+            # If not Loki format, try other parsing methods
+            else:
+                # Fallback to existing parse_loki_json if available
+                from tools.loki.loki_log_analyser import parse_loki_json
+                entries = parse_loki_json([file_path])
+
+        except Exception as e:
+            logger.error(f"Error parsing log file {file_path}: {e}")
+
+        return entries
 
     def _group_entries_by_trace(self, entries: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """Group log entries by trace_id."""

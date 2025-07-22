@@ -478,33 +478,80 @@ class ReportWriter:
                 timestamp = timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
             # Handle service name extraction
-            service_name = 'Unknown'
-            if 'service_name' in entry:
-                service_name = entry['service_name']
-            elif 'stream' in entry and 'service_name' in entry['stream']:
+            service_name = entry.get('service_name', 'Unknown')
+            if service_name == 'Unknown' and 'stream' in entry and 'service_name' in entry['stream']:
                 service_name = entry['stream']['service_name']
 
             # Handle severity/level extraction
-            level = 'Unknown'
-            if 'severity_text' in entry:
-                level = entry['severity_text']
-            elif 'stream' in entry and 'severity_text' in entry['stream']:
+            level = entry.get('severity_text', 'Unknown')
+            if level == 'Unknown' and 'stream' in entry and 'severity_text' in entry['stream']:
                 level = entry['stream']['severity_text']
-            elif 'level' in entry:
+            elif level == 'Unknown' and 'level' in entry:
                 level = entry['level']
 
+            # Extract additional fields
+            service_instance_id = entry.get('service_instance_id', 'Unknown')
+            if service_instance_id == 'Unknown' and 'stream' in entry and 'service_instance_id' in entry['stream']:
+                service_instance_id = entry['stream']['service_instance_id']
+
+            trace_id = entry.get('trace_id', 'Unknown')
+            if trace_id == 'Unknown' and 'stream' in entry and 'trace_id' in entry['stream']:
+                trace_id = entry['stream']['trace_id']
+
+            service_namespace = entry.get('service_namespace', 'Unknown')
+            if service_namespace == 'Unknown' and 'stream' in entry and 'service_namespace' in entry['stream']:
+                service_namespace = entry['stream']['service_namespace']
+
+            host_name = entry.get('host_name', 'Unknown')
+            if host_name == 'Unknown' and 'stream' in entry and 'host_name' in entry['stream']:
+                host_name = entry['stream']['host_name']
+
+            span_id = entry.get('span_id', 'Unknown')
+            if span_id == 'Unknown' and 'stream' in entry and 'span_id' in entry['stream']:
+                span_id = entry['stream']['span_id']
+
+            # Write header information
             f.write(f"Timestamp: {timestamp}\n")
             f.write(f"Service: {service_name}\n")
+            f.write(f"Service Instance ID: {service_instance_id}\n")
+            f.write(f"Service Namespace: {service_namespace}\n")
             f.write(f"Level: {level}\n")
+            f.write(f"Host Name: {host_name}\n")
+            f.write(f"Trace ID: {trace_id}\n")
+            f.write(f"Span ID: {span_id}\n")
             f.write(f"Thread: {entry.get('thread_name', 'Unknown')}\n")
             f.write("\nLog Content:\n")
             f.write("-" * 12 + "\n")
 
-            # Get content - handle Loki format
+            # Get content - handle multiple formats
             content = 'No content available'
             if 'values' in entry and entry['values'] and len(entry['values']) > 0:
                 try:
-                    content = entry['values'][0][1]
+                    raw_content = entry['values'][0][1]
+                    # Format JSON responses for readability if they exist
+                    if raw_content and 'Response:' in raw_content:
+                        lines = raw_content.split('\n')
+                        formatted_lines = []
+                        for line in lines:
+                            if 'Response:' in line:
+                                # Try to format JSON response
+                                try:
+                                    import json
+                                    response_part = line.split('Response:', 1)[1].strip()
+                                    if response_part.startswith('{') or response_part.startswith('['):
+                                        parsed_json = json.loads(response_part)
+                                        formatted_json = json.dumps(parsed_json, indent=2, ensure_ascii=False)
+                                        formatted_lines.append(line.split('Response:', 1)[0] + 'Response:')
+                                        formatted_lines.append(formatted_json)
+                                    else:
+                                        formatted_lines.append(line)
+                                except:
+                                    formatted_lines.append(line)
+                            else:
+                                formatted_lines.append(line)
+                        content = '\n'.join(formatted_lines)
+                    else:
+                        content = raw_content
                 except:
                     pass
             elif 'message' in entry:
@@ -515,6 +562,18 @@ class ReportWriter:
                 content = entry['original_xml']
 
             f.write(content)
+
+            # Add values section for complete information
+            if 'values' in entry and entry['values']:
+                f.write("\n\nRaw Values:\n")
+                f.write("-" * 11 + "\n")
+                for idx, value_pair in enumerate(entry['values']):
+                    f.write(f"Value {idx + 1}:\n")
+                    f.write(f"  Timestamp: {value_pair[0]}\n")
+                    f.write(f"  Content: {value_pair[1]}\n")
+                    if idx < len(entry['values']) - 1:
+                        f.write("\n")
+
             f.write("\n\n" + "=" * 60 + "\n\n")
 
         # Footer

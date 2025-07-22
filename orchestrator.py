@@ -41,9 +41,10 @@ class Orchestrator:
         # await asyncio.sleep(0)
         params = {
             "domain": "transactions",
-            "query_keys": ["merchant", "amount", "date"],
+            "query_keys": ["merchant"],
             "time_frame": "2025-07-15"
         }
+        yield "Extracted Parameters", {"parameters": params}
         # STEP 2: File search
         log_files = []
         unique_filename = ""
@@ -53,7 +54,8 @@ class Orchestrator:
             logger.info("STEP 2: File search…")  # structured logging :contentReference[oaicite:10]{index=10}
             log_files = self.file_searcher.find_and_verify(params)
             files = [str(f) for f in log_files]
-            yield "Found relevant files", {"found_files": files, "total_files": len(files)}
+            logger.info({"found_files": files, "total_files": len(files)})
+            yield "Found relevant files", {"total_files": len(files)}
             await asyncio.sleep(0)  # yield control without blocking :contentReference[oaicite:11]{index=11}
 
         elif project in ("NCC", "ABBL"):
@@ -71,7 +73,8 @@ class Orchestrator:
                 end_date_str=end_date_str,
                 output=unique_filename
             )
-            yield "Downloaded logs in file", {"filename": unique_filename}
+            logger.info(f"Downloaded logs to {unique_filename}")
+            yield "Downloaded logs in file", {}
             await asyncio.sleep(0)
 
         # STEP 3: Trace ID collection
@@ -85,12 +88,14 @@ class Orchestrator:
                     tid = r.get("trace_id")
                     if tid and tid not in unique_ids:
                         unique_ids.append(tid)
-            yield "Found trace id(s)", {"found_trace_ids": unique_ids, "count": len(unique_ids)}
+            logger.info({"unique_ids": unique_ids})
+            yield "Found trace id(s)", {"count": len(unique_ids)}
             await asyncio.sleep(0)
 
         elif project in ("NCC", "ABBL"):
             unique_ids = extract_trace_ids(unique_filename)
-            yield "Found trace id(s)", {"found_trace_ids": unique_ids, "count": len(unique_ids)}
+            logger.info({"unique_ids": unique_ids})
+            yield "Found trace id(s)", {"count": len(unique_ids)}
             await asyncio.sleep(0)
 
 
@@ -122,10 +127,12 @@ class Orchestrator:
                     "total_entries": len(entries),
                 }
                 summary_counts[trace_id] = len(entries)
-
-            yield "Compiled Request Traces", {
+            logger.info({
                 "traces_compiled": len(summary_counts),
                 "entries_per_trace": summary_counts
+            })
+            yield "Compiled Request Traces", {
+                "traces_compiled": len(summary_counts)
             }
             await asyncio.sleep(0)
 
@@ -139,10 +146,12 @@ class Orchestrator:
                 date_str=search_date,
                 end_date_str=end_date_str
             )
-
-            yield "Compiled Request Traces", {
+            logger.info( {
                 "traces_compiled": len(log_files),
                 "trace_log_files": log_files
+            })
+            yield "Compiled Request Traces", {
+                "traces_compiled": len(log_files)
             }
             await asyncio.sleep(0)
 
@@ -162,27 +171,20 @@ class Orchestrator:
             }
             await asyncio.sleep(0)
 
+
         elif project in ("NCC", "ABBL"):
-            entries = parse_loki_json(log_files)
-            report_path = self.verify_agent.generate_comprehensive_report(
-                trace_ids=unique_ids,
-                entries=entries,
+            result = self.verify_agent.analyze_log_files(
+                log_file_paths=log_files,
                 dispute_text=text,
-                search_params=params,
-                search_results={"unique_trace_ids": unique_ids},
-                output_path = r"K:\projects\ai\agent-loggy\comprehensive_analysis\comprehensive_report.txt",
-                max_traces=3
+                search_params=params
             )
-            # wrap it so your yield still sees the same keys
-            result = {
-                "comprehensive_files_created": [report_path],
-                "master_summary_file": report_path
-            }
+            # 3) Single final yield with all report paths
             yield "Compiled Summary", {
-                "created_files": result["comprehensive_files_created"],
-                "master_summary_file": result["master_summary_file"]
+                "created_files": result["individual_reports"],
+                "master_summary_file": result["master_report"]
             }
             await asyncio.sleep(0)
 
-        # DONE
+
+    # DONE
         yield "done", {"message": "Analysis complete."}

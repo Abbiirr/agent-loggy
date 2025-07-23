@@ -16,3 +16,7 @@ tools/loki/trace_logs/
 tools/loki/test_reports/
 
 trace_logs/
+
+agents/relevance_analysis/
+
+loki_logs/

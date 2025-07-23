@@ -38,12 +38,12 @@ def gather_logs_for_trace_ids(
     files: List[str] = []
     for tid in trace_ids:
         filename = os.path.join(output_dir, f"trace_{tid}.json")
-        download_logs(pipeline={'trace_id': tid},
-                      filters=filters,  # ensure service_namespace forward for each call
+        download_logs(filters=filters,  # ensure service_namespace forward for each call
                       date_str=date_str,
                       time_str=time_str,
                       end_date_str=end_date_str,
                       end_time_str=end_time_str,
+                      trace_id=tid,
                       output=filename)
         files.append(filename)
     return files

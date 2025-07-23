@@ -18,3 +18,7 @@ class StreamRequest(BaseModel):
         default="DEV",
         description="The environment for the project (e.g., production, staging)."
     )
+    domain : str = Field(
+        default="General",
+        description="The domain or context of the request (e.g., transactions, user management)."
+    )

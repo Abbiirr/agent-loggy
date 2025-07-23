@@ -1,7 +1,8 @@
 import re
 import subprocess
 from datetime import datetime, timedelta
-from typing import Union, List, Dict
+from typing import Union, List, Dict, Optional
+import os
 
 # Default Loki endpoint
 BASE_URL = "https://loki-gateway.local.fintech23.xyz/loki/api/v1/query_range"
@@ -34,40 +35,49 @@ def build_curl_args(
     filters: Union[Dict[str, str], None] = None,
     pipeline: Union[Dict[str, str], List[str], None] = None,
     search: Union[str, List[str], None] = None,
-    date_str: Union[str, None] = None,
-    time_str: Union[str, None] = None,
-    end_date_str: Union[str, None] = None,
-    end_time_str: Union[str, None] = None,
-    output: Union[str, None] = None,
+    trace_id: Optional[str] = None,             # ← new!
+    date_str: Optional[str] = None,
+    time_str: Optional[str] = None,
+    end_date_str: Optional[str] = None,
+    end_time_str: Optional[str] = None,
+    output: Optional[str] = None,
     base_url: str = BASE_URL,
 ) -> List[str]:
-    """
-    Return a list of curl args for Loki query, ready for subprocess.
-    """
-    # 1) Build LogQL selector with filters & pipeline (unchanged) …
+    # 1) Build the selector as before
     sel = "{" + ",".join(f'{k}="{v}"' for k, v in (filters or {}).items()) + "}"
-    if pipeline:
-        items = pipeline.items() if isinstance(pipeline, dict) else pipeline
-        for entry in items:
-            if isinstance(entry, tuple):
-                k, v = entry
-                sel += f' | {k}="{v}"'
-            else:
-                sel += f' | {entry}'
 
-    # 2) Handle search terms: single vs. multiple as OR
+    # 2) Handle any existing pipeline entries
+    stages: List[str] = []
+    if pipeline:
+        stages = list(pipeline.items() if isinstance(pipeline, dict) else pipeline)
+
+    # 3) If user wants to filter by trace_id, ensure we parse JSON first
+    if trace_id:
+        # only add `json` once
+        # if "json" not in stages:
+        #     stages.insert(0, "json")
+        # then add the trace_id filter
+        stages.append(f'trace_id="{trace_id}"')
+
+    # 4) Stitch stages into sel (prefixing non-negations with '|')
+    for stage in stages:
+        raw = stage if isinstance(stage, str) else stage[1]
+        if raw.lstrip().startswith(("!=", "!~")):
+            sel += f" {raw.strip()}"
+        else:
+            sel += f" | {raw.strip()}"
+
+    # 5) Handle search terms (unchanged)
     if search:
         if isinstance(search, (list, tuple)):
-            # escape quotes in each term
-            esc_terms = [term.replace('"', '\\"') for term in search]
-            # join under one '|=' operator
-            joined = " or ".join(f'"{t}"' for t in esc_terms)
+            esc = [t.replace('"', '\\"') for t in search]
+            joined = " or ".join(f'"{t}"' for t in esc)
             sel += f' |= {joined}'
         else:
             esc = search.replace('"', '\\"')
             sel += f' |= "{esc}"'
 
-    # 3) Time range logic (unchanged) …
+    # 6) Time‐range logic (unchanged) …
     if date_str:
         start_dt = _parse_single_datetime(date_str, time_str)
         if end_date_str:
@@ -79,19 +89,20 @@ def build_curl_args(
         end_dt = datetime.utcnow()
         start_dt = end_dt - timedelta(days=1)
 
-    start = start_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
-    end   = end_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+    start = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end   = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # 4) Build curl args
+    # 7) Build the curl invocation
     args = [
         "curl", "-G", base_url,
         "--data-urlencode", f"query={sel}",
         "--data-urlencode", f"start={start}",
-        "--data-urlencode", f"end={end}"
+        "--data-urlencode", f"end={end}",
     ]
     if output:
         args += ["-o", output]
     return args
+
 
 
 

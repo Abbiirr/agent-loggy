@@ -1,0 +1,7 @@
+id,context,important,ignore,description
+1,mfs,"processPayment,transferMoney,balanceInquiry,transaction_created,payment_processed","MFS_TRANSFER_STATUS_UPDATE_SCHEDULER_INVOCATION_TOPIC,HEARTBEAT,HEALTH_CHECK,STATUS_SYNC",MFS payment processing - ignore scheduled status updates and health checks
+2,transactions,"transaction_created,payment_processed,amount,merchant,transfer_completed","session_cleanup,cache_refresh,log_rotation,connection_pool_stats","Transaction processing - focus on actual transactions, ignore maintenance"
+3,bkash,"bkash_payment,mobile_wallet,OTP_verification,payment_request,fund_transfer","bkash_heartbeat,connection_pool_stats,session_timeout_cleanup",bKash payments - ignore connection maintenance and heartbeats
+4,merchant,"merchant_payment,pos_transaction,merchant_settlement,qr_payment","merchant_heartbeat,daily_summary_job,merchant_sync_task",Merchant transactions - ignore scheduled sync and summary jobs
+5,npsb,"npsb_transfer,interbank_transfer,swift_message,settlement","npsb_heartbeat,system_health_check,connection_test",NPSB interbank transfers - ignore system health monitoring
+6,beftn,"beftn_transfer,batch_processing,file_upload,transfer_confirmation","batch_scheduler,file_cleanup,archive_old_files",BEFTN bulk transfers - ignore batch scheduling and cleanup

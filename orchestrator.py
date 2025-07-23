@@ -11,15 +11,17 @@ from agents.parameter_agent import ParametersAgent
 from agents.file_searcher import FileSearcher
 from tools.log_searcher import LogSearcher
 from tools.full_log_finder import FullLogFinder
-from agents.verify_agent import VerifyAgent
+from agents.analyze_agent import AnalyzeAgent
 from tools.loki.loki_trace_id_extractor import gather_logs_for_trace_ids, extract_trace_ids
 from tools.loki.loki_query_builder import download_logs
 from datetime import datetime, timedelta
 from dateutil import parser as date_parser
 from tools.loki.loki_log_report_generator import generate_comprehensive_report, parse_loki_json
+import csv
 
 logger = logging.getLogger(__name__)
 
+NEGATE_RULES_PATH ="app_settings/negate_keys.csv"
 
 class Orchestrator:
     """
@@ -31,20 +33,40 @@ class Orchestrator:
         self.file_searcher = FileSearcher(Path(log_base_dir), client, model)
         self.log_searcher = LogSearcher(context=2)
         self.full_log_finder = FullLogFinder()
-        self.verify_agent = VerifyAgent(client, model, output_dir="comprehensive_analysis")
+        self.verify_agent = AnalyzeAgent(client, model, output_dir="comprehensive_analysis")
 
     async def analyze_stream(self, text: str, project: str , env: str, domain: str ) -> Dict[str, Any]:
+        # 1) Read negate keys from a CSV file (one key per row, no header)
+        negate_keys = []
+        try:
+            with open(NEGATE_RULES_PATH, newline='', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                # Skip the header row
+                next(reader, None)
+                for row in reader:
+                    # Ensure we have at least 3 columns: label, operator, value
+                    if len(row) >= 3:
+                        term = row[2].strip()
+                        if term:
+                            negate_keys.append(term)
+        except FileNotFoundError:
+            logger.warning(f"Negation rules file not found at {NEGATE_RULES_PATH}")
+        except Exception as e:
+            logger.error(f"Error reading negate rules: {e}")
+
         # STEP 1: Parameter extraction
         logger.info("STEP 1: Parameter extraction…")
-        # params = self.param_agent.run(text)
+        params = self.param_agent.run(text)
+        logger.info("Extracted parameters: %s", json.dumps(params, indent=2))
+        yield "Extracted Parameters", {"parameters": params}
+        await asyncio.sleep(0)
+        # params = {
+        #     "domain": "transactions",
+        #     "query_keys": ["mfs"],
+        #     "time_frame": "2025-07-16"
+        # }
         # yield "Extracted Parameters", {"parameters": params}
         # await asyncio.sleep(0)
-        params = {
-            "domain": "transactions",
-            "query_keys": ["merchant"],
-            "time_frame": "2025-07-15"
-        }
-        yield "Extracted Parameters", {"parameters": params}
         # STEP 2: File search
         log_files = []
         unique_filename = ""
@@ -65,13 +87,15 @@ class Orchestrator:
             search_dt = date_parser.parse(search_date)
             end_dt = search_dt + timedelta(days=1)
             end_date_str = end_dt.date().isoformat()
-            unique_filename = f"{project}{env}_{search_date}_{uuid.uuid4().hex}.json"
+            unique_filename = f"loki_logs/{project}{env}_{search_date}_{uuid.uuid4().hex}.json"
+            pipeline = [f'!= "{term}"' for term in negate_keys]
             download_logs(
                 filters={"service_namespace": project.lower()},
                 search=query_keys,
                 date_str=search_date,
                 end_date_str=end_date_str,
-                output=unique_filename
+                output=unique_filename,
+                pipeline=pipeline
             )
             logger.info(f"Downloaded logs to {unique_filename}")
             yield "Downloaded logs in file", {}
@@ -173,21 +197,15 @@ class Orchestrator:
 
 
         elif project in ("NCC", "ABBL"):
-            # result = self.verify_agent.analyze_log_files(
-            #     log_file_paths=log_files,
-            #     dispute_text=text,
-            #     search_params=params
-            # )
+            result = self.verify_agent.analyze_log_files(
+                log_file_paths=log_files,
+                dispute_text=text,
+                search_params=params
+            )
             # 3) Single final yield with all report paths
             yield "Compiled Summary", {
-                "created_files": [
-                    r"comprehensive_analysis\trace_report_e5143955f01d_20250722_112625.txt",
-                    r"comprehensive_analysis\trace_report_5c62b722e862_20250722_112650.txt",
-                    r"comprehensive_analysis\trace_report_8a2e1fbc850b_20250722_112713.txt",
-                    r"comprehensive_analysis\trace_report_70a617667014_20250722_112729.txt",
-                    r"comprehensive_analysis\trace_report_6dcac4a5b100_20250722_112749.txt"
-                ],
-                "master_summary_file": r"comprehensive_analysis\master_summary_20250722_112749.txt"
+                "created_files": result["individual_reports"],
+                "master_summary_file": result["master_report"]
             }
 
             await asyncio.sleep(0)

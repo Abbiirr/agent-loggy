@@ -1,363 +1,478 @@
-# agents/verify_agent.py - Refactored version focusing on analysis generation
+# agents/verify_agent.py
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from ollama import Client
-import re, json
+import re
+import json
+import csv
 from datetime import datetime as dt
-
-from .report_writer import ReportWriter
+from dataclasses import dataclass
+from enum import Enum
+import os
 
 logger = logging.getLogger(__name__)
 
 
-class VerifyAgent:
+class RelevanceLevel(Enum):
+    """Enumeration for relevance levels"""
+    HIGHLY_RELEVANT = "highly_relevant"
+    RELEVANT = "relevant"
+    POTENTIALLY_RELEVANT = "potentially_relevant"
+    NOT_RELEVANT = "not_relevant"
+    IGNORED = "ignored"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class ContextRule:
+    """Data class for context rules"""
+    id: str
+    context: str
+    important: str
+    ignore: str
+    description: Optional[str] = None
+
+
+@dataclass
+class RelevanceResult:
+    """Data class for relevance analysis results"""
+    file_path: str
+    trace_id: str
+    relevance_level: RelevanceLevel
+    relevance_score: float  # 0-100
+    confidence_score: float  # 0-100
+    matching_elements: List[str]
+    non_matching_elements: List[str]
+    key_findings: List[str]
+    recommendation: str
+    analysis_timestamp: str
+    processing_time_ms: float
+    applied_rules: List[str]  # Which context rules were applied
+    ignored_patterns: List[str]  # Patterns that caused ignoring
+
+
+class RAGContextManager:
     """
-    Enhanced VerifyAgent focused on analysis generation.
-    Report writing functionality has been separated to ReportWriter class.
+    Manages RAG context rules from file
     """
 
-    def __init__(self, client: Client, model: str, output_dir: str = "comprehensive_analysis"):
+    def __init__(self, context_file_path: str = "context_rules.csv"):
+        self.context_file_path = Path(context_file_path)
+        self.rules: List[ContextRule] = []
+        self.load_context_rules()
+
+    def load_context_rules(self):
+        """Load context rules from CSV file"""
+        if not self.context_file_path.exists():
+            self.create_default_context_file()
+
+        try:
+            with open(self.context_file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                self.rules = []
+                for row in reader:
+                    rule = ContextRule(
+                        id=row['id'].strip(),
+                        context=row['context'].strip(),
+                        important=row['important'].strip(),
+                        ignore=row['ignore'].strip(),
+                        description=row.get('description', '').strip() or None
+                    )
+                    self.rules.append(rule)
+
+            logger.info(f"Loaded {len(self.rules)} context rules from {self.context_file_path}")
+
+        except Exception as e:
+            logger.error(f"Error loading context rules: {e}")
+            self.rules = []
+
+    def create_default_context_file(self):
+        """Create a default context rules file"""
+        default_rules = [
+            {
+                'id': '1',
+                'context': 'mfs',
+                'important': 'processPayment,transferMoney,balanceInquiry',
+                'ignore': 'MFS_TRANSFER_STATUS_UPDATE_SCHEDULER_INVOCATION_TOPIC,HEARTBEAT,HEALTH_CHECK',
+                'description': 'MFS payment processing - ignore scheduled status updates and health checks'
+            },
+            {
+                'id': '2',
+                'context': 'transactions',
+                'important': 'transaction_created,payment_processed,amount,merchant',
+                'ignore': 'session_cleanup,cache_refresh,log_rotation',
+                'description': 'Transaction processing - focus on actual transactions, ignore maintenance'
+            },
+            {
+                'id': '3',
+                'context': 'bkash',
+                'important': 'bkash_payment,mobile_wallet,OTP_verification',
+                'ignore': 'bkash_heartbeat,connection_pool_stats',
+                'description': 'bKash payments - ignore connection maintenance'
+            }
+        ]
+
+        try:
+            with open(self.context_file_path, 'w', newline='', encoding='utf-8') as f:
+                fieldnames = ['id', 'context', 'important', 'ignore', 'description']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(default_rules)
+
+            logger.info(f"Created default context file: {self.context_file_path}")
+
+        except Exception as e:
+            logger.error(f"Error creating default context file: {e}")
+
+    def get_relevant_rules(self, domain: str, query_keys: List[str]) -> List[ContextRule]:
+        """Get rules relevant to the current query"""
+        relevant_rules = []
+
+        for rule in self.rules:
+            # Check if rule context matches domain or any query keys
+            if (rule.context.lower() == domain.lower() or
+                    any(key.lower() in rule.context.lower() for key in query_keys) or
+                    any(rule.context.lower() in key.lower() for key in query_keys)):
+                relevant_rules.append(rule)
+
+        return relevant_rules
+
+    def should_ignore_trace(self, trace_content: str, relevant_rules: List[ContextRule]) -> Tuple[bool, List[str]]:
+        """
+        Check if trace should be ignored based on rules
+        Returns: (should_ignore, list_of_matching_ignore_patterns)
+        """
+        ignore_patterns = []
+
+        for rule in relevant_rules:
+            if rule.ignore:
+                ignore_terms = [term.strip() for term in rule.ignore.split(',') if term.strip()]
+
+                for term in ignore_terms:
+                    # Check if this ignore pattern appears in trace
+                    if re.search(re.escape(term), trace_content, re.IGNORECASE):
+                        ignore_patterns.append(f"{rule.context}:{term}")
+
+                        # Check if this is the ONLY significant activity in the trace
+                        # (simple heuristic: if ignore pattern appears frequently relative to total content)
+                        ignore_occurrences = len(re.findall(re.escape(term), trace_content, re.IGNORECASE))
+                        total_lines = len(trace_content.split('\n'))
+
+                        if ignore_occurrences > 0 and ignore_occurrences >= (total_lines * 0.3):
+                            return True, ignore_patterns
+
+        return False, ignore_patterns
+
+    def get_important_patterns(self, relevant_rules: List[ContextRule]) -> List[str]:
+        """Get list of important patterns from relevant rules"""
+        important_patterns = []
+
+        for rule in relevant_rules:
+            if rule.important:
+                terms = [term.strip() for term in rule.important.split(',') if term.strip()]
+                important_patterns.extend([f"{rule.context}:{term}" for term in terms])
+
+        return important_patterns
+
+
+class RelevanceAnalyzerAgent:
+    """
+    Agent responsible for analyzing request traces and determining their relevance
+    to the original user query/text based on extracted parameters.
+    Enhanced with RAG-based context rules.
+    """
+
+    def __init__(self, client: Client, model: str, output_dir: str = "relevance_analysis",
+                 context_file: str = "context_rules.csv"):
         self.client = client
         self.model = model
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Initialize the report writer
-        self.report_writer = ReportWriter(output_dir, model)
+        # Initialize RAG context manager
+        self.rag_manager = RAGContextManager(context_file)
 
-        logger.info(f"VerifyAgent initialized with model: {model}, output directory: {self.output_dir}")
+        # Define relevance thresholds
+        self.HIGHLY_RELEVANT_THRESHOLD = 80
+        self.RELEVANT_THRESHOLD = 60
+        self.POTENTIALLY_RELEVANT_THRESHOLD = 40
 
-    def analyze_and_create_comprehensive_files(
+        logger.info(f"RelevanceAnalyzerAgent initialized with model: {model}")
+        logger.info(f"RAG context rules loaded: {len(self.rag_manager.rules)}")
+
+    def analyze_batch_relevance(
             self,
-            original_context: str,
-            search_results: Dict,
-            trace_data: Dict,
-            parameters: Dict,
-            output_prefix: str = None
-    ) -> Dict:
-        """
-        Create comprehensive files for each trace containing both analysis and full logs.
-
-        Args:
-            original_context: The original user query/context
-            search_results: Results from log searching
-            trace_data: Comprehensive trace data from all log files
-            parameters: Extracted parameters from original context
-            output_prefix: Custom prefix for output files
-
-        Returns:
-            Dictionary with analysis results and created file paths
-        """
-        logger.info("Creating comprehensive analysis files for each trace...")
-
-        all_trace_data = trace_data.get('all_trace_data', {})
-        if not all_trace_data:
-            logger.warning("No trace data available for analysis")
-            return self._create_empty_result()
-
-        # Step 1: Perform overall quality assessment
-        overall_quality = self._assess_overall_quality(original_context, search_results, trace_data, parameters)
-
-        # Step 2: Create comprehensive file for each trace
-        created_files = []
-        trace_analyses = {}
-
-        for trace_id, comprehensive_trace_data in all_trace_data.items():
-            logger.info(f"Creating comprehensive file for trace: {trace_id}")
-
-            # Analyze this specific trace
-            trace_analysis = self._analyze_single_trace(
-                trace_id, comprehensive_trace_data, original_context, parameters
-            )
-
-            # Create comprehensive file using report writer
-            relative_path = self.report_writer.create_comprehensive_trace_file(
-                trace_id, trace_analysis, comprehensive_trace_data,
-                original_context, parameters, overall_quality, output_prefix
-            )
-
-            abs_path = str(Path(relative_path).resolve())
-            created_files.append(abs_path)
-            trace_analyses[trace_id] = trace_analysis
-            logger.info(f"✓ Created comprehensive file: {abs_path}")
-
-        # Create master summary file using report writer
-        master_summary_relative = self.report_writer.create_master_summary_file(
-            original_context, search_results, trace_analyses,
-            overall_quality, parameters, created_files, output_prefix
-        )
-        master_summary_path = str(Path(master_summary_relative).resolve())
-
-        results = {
-            'analysis_timestamp': dt.now().isoformat(),
-            'original_context': original_context,
-            'parameters': parameters,
-            'overall_quality_assessment': overall_quality,
-            'trace_analyses': trace_analyses,
-            'comprehensive_files_created': created_files,
-            'master_summary_file': master_summary_path,
-            'total_traces_analyzed': len(trace_analyses),
-            'confidence_score': overall_quality.get('overall_confidence', 0),
-            'metadata': {
-                'total_files_searched': search_results.get('total_files', 0),
-                'total_matches': search_results.get('total_matches', 0),
-                'unique_traces': len(all_trace_data),
-                'model_used': self.model
-            }
-        }
-
-        logger.info(f"Comprehensive analysis completed for {len(created_files)} traces")
-        logger.info(f"Master summary: {master_summary_path}")
-        return results
-
-    def analyze_log_files(
-            self,
-            log_file_paths: List[str],
-            dispute_text: str,
-            search_params: Dict[str, Any] = None
+            original_text: str,
+            parameters: Dict[str, Any],
+            trace_files: List[str],
+            batch_size: int = 10
     ) -> Dict[str, Any]:
         """
-        Analyze log files and generate individual trace reports plus a master summary.
-
-        Args:
-            log_file_paths: List of paths to log files to analyze
-            dispute_text: The original customer dispute text
-            search_params: Optional search parameters used
-
-        Returns:
-            Dict containing:
-            - "individual_reports": List of paths to individual trace reports
-            - "master_report": Path to master summary report
-            - "analysis_summary": Summary statistics
+        Analyze relevance of multiple trace files in batches.
+        Enhanced with RAG context filtering.
         """
-        if search_params is None:
-            search_params = {}
+        logger.info(f"Starting batch relevance analysis for {len(trace_files)} files")
+        print(f"Starting batch relevance analysis for {len(trace_files)} files")
 
-        logger.info(f"Starting analysis of {len(log_file_paths)} log files")
+        # Get relevant context rules for this query
+        domain = parameters.get('domain', '')
+        query_keys = parameters.get('query_keys', [])
+        relevant_rules = self.rag_manager.get_relevant_rules(domain, query_keys)
 
-        # 1) Parse all log files and extract entries
-        all_entries = []
-        for file_path in log_file_paths:
-            try:
-                entries = self._parse_log_file(file_path)
-                all_entries.extend(entries)
-                logger.info(f"Parsed {len(entries)} entries from {file_path}")
-            except Exception as e:
-                logger.error(f"Error parsing {file_path}: {e}")
-                continue
+        logger.info(f"Found {len(relevant_rules)} relevant context rules")
+        print(f"Found {len(relevant_rules)} relevant context rules: {[r.context for r in relevant_rules]}")
 
-        # 2) Sort entries chronologically and group by trace_id
-        all_entries_sorted = sorted(all_entries, key=lambda e: e.get('timestamp') or dt.min)
-        trace_groups = self._group_entries_by_trace(all_entries_sorted)
+        all_results = []
+        highly_relevant_files = []
+        relevant_files = []
+        potentially_relevant_files = []
+        not_relevant_files = []
+        ignored_files = []
 
-        logger.info(f"Found {len(trace_groups)} unique traces with {len(all_entries_sorted)} total entries")
+        start_time = dt.now()
 
-        # 3) Generate individual trace reports
-        individual_reports = []
-        trace_analyses = {}
+        # Process files in batches
+        for i in range(0, len(trace_files), batch_size):
+            batch = trace_files[i:i + batch_size]
+            batch_results = []
 
-        for trace_id, trace_entries in trace_groups.items():
-            try:
-                # Generate analysis for this trace
-                trace_analysis = self._analyze_single_trace_from_entries(
-                    trace_id, trace_entries, dispute_text, search_params
-                )
-                trace_analyses[trace_id] = trace_analysis
+            for file_path in batch:
+                try:
+                    result = self.analyze_single_file_relevance(
+                        original_text, parameters, file_path, relevant_rules
+                    )
+                    batch_results.append(result)
 
-                # Generate individual report using report writer
-                report_path = self.report_writer.create_individual_trace_report(
-                    trace_id, trace_entries, dispute_text, search_params, trace_analysis
-                )
-                individual_reports.append(report_path)
+                    # Categorize based on relevance level
+                    if result.relevance_level == RelevanceLevel.HIGHLY_RELEVANT:
+                        highly_relevant_files.append(result)
+                    elif result.relevance_level == RelevanceLevel.RELEVANT:
+                        relevant_files.append(result)
+                    elif result.relevance_level == RelevanceLevel.POTENTIALLY_RELEVANT:
+                        potentially_relevant_files.append(result)
+                    elif result.relevance_level == RelevanceLevel.IGNORED:
+                        ignored_files.append(result)
+                    else:
+                        not_relevant_files.append(result)
 
-                logger.info(f"✓ Created report for trace {trace_id}: {report_path}")
+                except Exception as e:
+                    logger.error(f"Error analyzing file {file_path}: {e}")
+                    print(f"Error analyzing file {file_path}: {e}")
+                    continue
 
-            except Exception as e:
-                logger.error(f"Error creating report for trace {trace_id}: {e}")
-                continue
+            all_results.extend(batch_results)
+            logger.info(f"Processed batch {i // batch_size + 1}/{(len(trace_files) + batch_size - 1) // batch_size}")
+            print(f"Processed batch {i // batch_size + 1}/{(len(trace_files) + batch_size - 1) // batch_size}")
 
-        # 4) Generate master summary report using report writer
-        try:
-            master_report_path = self.report_writer.create_master_analysis_summary(
-                trace_groups, all_entries_sorted, dispute_text, search_params, trace_analyses
-            )
-            logger.info(f"✓ Created master summary: {master_report_path}")
+        end_time = dt.now()
+        processing_time = (end_time - start_time).total_seconds()
 
-        except Exception as e:
-            logger.error(f"Error creating master summary: {e}")
-            master_report_path = None
+        # Generate summary report
+        summary_report = self._generate_summary_report(
+            original_text,
+            parameters,
+            all_results,
+            highly_relevant_files,
+            relevant_files,
+            potentially_relevant_files,
+            not_relevant_files,
+            ignored_files,
+            processing_time,
+            relevant_rules
+        )
+        print(summary_report)
 
-        # 5) Return results
-        result = {
-            "individual_reports": individual_reports,
-            "master_report": master_report_path,
-            "analysis_summary": {
-                "total_traces": len(trace_groups),
-                "total_entries": len(all_entries_sorted),
-                "files_processed": len(log_file_paths),
-                "reports_created": len(individual_reports)
+        return {
+            "summary": summary_report,
+            "detailed_results": all_results,
+            "highly_relevant": [r.file_path for r in highly_relevant_files],
+            "relevant": [r.file_path for r in relevant_files],
+            "potentially_relevant": [r.file_path for r in potentially_relevant_files],
+            "not_relevant": [r.file_path for r in not_relevant_files],
+            "ignored": [r.file_path for r in ignored_files],
+            "context_rules_applied": [r.context for r in relevant_rules],
+            "statistics": {
+                "total_files": len(trace_files),
+                "processed_files": len(all_results),
+                "highly_relevant_count": len(highly_relevant_files),
+                "relevant_count": len(relevant_files),
+                "potentially_relevant_count": len(potentially_relevant_files),
+                "not_relevant_count": len(not_relevant_files),
+                "ignored_count": len(ignored_files),
+                "processing_time_seconds": processing_time
             }
         }
 
-        logger.info(f"Analysis complete: {len(individual_reports)} individual reports + 1 master report")
+    def analyze_single_file_relevance(
+            self,
+            original_text: str,
+            parameters: Dict[str, Any],
+            file_path: str,
+            relevant_rules: List[ContextRule] = None
+    ) -> RelevanceResult:
+        """
+        Analyze relevance of a single trace file.
+        Enhanced with RAG context filtering.
+        """
+        start_time = dt.now()
+        logger.info(f"Analyzing relevance for file: {file_path}")
+
+        # Read and parse the trace file
+        trace_content = self._read_trace_file(file_path)
+        if not trace_content:
+            return self._create_error_result(file_path, "Failed to read file")
+
+        # Check RAG rules for ignoring
+        applied_rules = []
+        ignored_patterns = []
+
+        if relevant_rules:
+            should_ignore, ignore_patterns = self.rag_manager.should_ignore_trace(trace_content, relevant_rules)
+            ignored_patterns = ignore_patterns
+            applied_rules = [r.id for r in relevant_rules]
+
+            if should_ignore:
+                end_time = dt.now()
+                processing_time_ms = (end_time - start_time).total_seconds() * 1000
+
+                return RelevanceResult(
+                    file_path=file_path,
+                    trace_id=self._extract_trace_id(trace_content),
+                    relevance_level=RelevanceLevel.IGNORED,
+                    relevance_score=0,
+                    confidence_score=95,
+                    matching_elements=[],
+                    non_matching_elements=ignored_patterns,
+                    key_findings=[f"Ignored due to patterns: {', '.join(ignored_patterns)}"],
+                    recommendation="IGNORE - Contains only maintenance/scheduled activities",
+                    analysis_timestamp=dt.now().isoformat(),
+                    processing_time_ms=processing_time_ms,
+                    applied_rules=applied_rules,
+                    ignored_patterns=ignored_patterns
+                )
+
+        # Extract key information from trace
+        trace_info = self._extract_trace_info(trace_content)
+
+        # Perform relevance analysis with RAG context
+        analysis = self._analyze_relevance_with_rag(
+            original_text,
+            parameters,
+            trace_info,
+            trace_content,
+            relevant_rules
+        )
+
+        # Calculate processing time
+        end_time = dt.now()
+        processing_time_ms = (end_time - start_time).total_seconds() * 1000
+
+        # Create result object
+        result = RelevanceResult(
+            file_path=file_path,
+            trace_id=trace_info.get('trace_id', 'unknown'),
+            relevance_level=self._determine_relevance_level(analysis['relevance_score']),
+            relevance_score=analysis['relevance_score'],
+            confidence_score=analysis['confidence_score'],
+            matching_elements=analysis['matching_elements'],
+            non_matching_elements=analysis['non_matching_elements'],
+            key_findings=analysis['key_findings'],
+            recommendation=analysis['recommendation'],
+            analysis_timestamp=dt.now().isoformat(),
+            processing_time_ms=processing_time_ms,
+            applied_rules=applied_rules,
+            ignored_patterns=ignored_patterns
+        )
+
+        logger.info(
+            f"Completed analysis for {file_path}: {result.relevance_level.value} (score: {result.relevance_score})")
         return result
 
-    def _analyze_single_trace(
+    def _analyze_relevance_with_rag(
             self,
-            trace_id: str,
-            trace_data: Dict,
-            original_context: str,
-            parameters: Dict
-    ) -> Dict:
-        """Analyze a single trace for relevance and findings by inspecting actual log content."""
-
-        # Extract key log messages and timeline for analysis
-        log_entries = trace_data.get('log_entries', [])
-        timeline = trace_data.get('timeline', [])
-
-        # Get sample log messages for context
-        sample_messages = []
-        for entry in log_entries[:10]:  # First 10 entries
-            message = entry.get('message', '')
-            if message and len(message) > 20:  # Only meaningful messages
-                sample_messages.append(message[:200])  # First 200 chars
-
-        # Get timeline summary
-        timeline_steps = []
-        for step in timeline[:15]:  # First 15 timeline events
-            operation = step.get('operation', 'Unknown')
-            timestamp = step.get('timestamp', 'N/A')
-            level = step.get('level', 'INFO')
-            timeline_steps.append(f"{timestamp} [{level}] {operation}")
-
-        prompt = f"""
-    You are a senior banking systems analyst investigating a transaction dispute. Analyze this trace by examining the actual log content to understand what happened during this transaction request.
-
-    ORIGINAL DISPUTE: {original_context[:300]}
-
-    SEARCH PARAMETERS:
-    - Time Frame: {parameters.get('time_frame', 'N/A')}
-    - Account Numbers: {parameters.get('query_keys', [])}
-    - Domain/System: {parameters.get('domain', 'N/A')}
-
-    TRACE ANALYSIS DATA:
-    - Trace ID: {trace_id}
-    - Total Log Entries: {trace_data.get('total_entries', 0)}
-    - Source Log Files: {len(trace_data.get('source_files', []))}
-    - Timeline Events: {len(timeline)}
-
-    ACTUAL LOG MESSAGES (Sample):
-    {chr(10).join(f"• {msg}" for msg in sample_messages[:8])}
-
-    CHRONOLOGICAL TIMELINE:
-    {chr(10).join(f"  {step}" for step in timeline_steps[:12])}
-
-    DEEP ANALYSIS REQUIRED:
-    Based on the actual log content above, analyze what really happened in this transaction request:
-
-    1. What was the transaction attempting to do?
-    2. Did it complete successfully or fail? At what stage?
-    3. What specific errors, warnings, or issues occurred?
-    4. What was the final outcome/status?
-    5. How does this relate to the customer's complaint?
-    6. What evidence supports or contradicts the customer's claim?
-
-    Provide detailed forensic analysis in JSON format:
-
-    {{
-        "relevance_score": <0-100>,
-        "request_summary": "<what the request was attempting to do or what was it about>",
-        "transaction_outcome": "<successful|failed|timeout|partial|unknown>",
-        "failure_point": "<where it failed if applicable>",
-        "key_finding": "<one sentence conclusion about what happened>",
-        "primary_issue": "<system_error|user_error|processing_delay|insufficient_data|normal_flow|network_issue|validation_error|timeout>",
-        "confidence_level": "<HIGH|MEDIUM|LOW>",
-        "evidence_found": ["<specific evidence from logs>", "<evidence 2>"],
-        "critical_indicators": ["<technical indicators>", "<indicator 2>"],
-        "error_messages": ["<actual error messages found>"],
-        "timeline_summary": "<step-by-step what happened>",
-        "customer_claim_assessment": "<supported|contradicted|partially_supported|insufficient_evidence>",
-        "root_cause_analysis": "<likely root cause based on logs>",
-        "recommendation": "<specific next action needed>",
-        "technical_details": "<technical findings for engineers>"
-    }}
-    """
-
-        try:
-            response = self.client.chat(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a senior banking systems analyst with expertise in transaction processing, log analysis, and dispute resolution. Analyze the provided log data thoroughly to understand exactly what happened during this transaction. Focus on technical details and evidence-based conclusions."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-            )
-
-            raw_response = response["message"]["content"].strip()
-            analysis = self._safe_parse_json(raw_response, self._default_trace_analysis)
-
-            # Add computed fields
-            analysis['trace_id'] = trace_id
-            analysis['total_entries'] = trace_data.get('total_entries', 0)
-            analysis['source_files_count'] = len(trace_data.get('source_files', []))
-            analysis['log_sample_size'] = len(sample_messages)
-            analysis['timeline_events_analyzed'] = len(timeline_steps)
-
-            return analysis
-
-        except Exception as e:
-            logger.error(f"Error analyzing trace {trace_id}: {e}")
-            return self._default_trace_analysis(trace_id)
-
-    def _analyze_single_trace_from_entries(
-            self,
-            trace_id: str,
-            trace_entries: List[Dict[str, Any]],
-            dispute_text: str,
-            search_params: Dict[str, Any]
+            original_text: str,
+            parameters: Dict[str, Any],
+            trace_info: Dict[str, Any],
+            full_content: str,
+            relevant_rules: List[ContextRule] = None
     ) -> Dict[str, Any]:
-        """Generate AI analysis for a single trace from trace entries."""
+        """
+        Core relevance analysis using LLM enhanced with RAG context.
+        """
+        # Extract relevant sections from trace
+        log_samples = trace_info.get('log_samples', [])
+        timeline_summary = trace_info.get('timeline_summary', '')
+        service_names = trace_info.get('service_names', [])
+        operations = trace_info.get('operations', [])
 
-        # Extract sample messages
-        sample_messages = []
-        for entry in trace_entries[:10]:
-            message = entry.get('message', '') or entry.get('raw_content', '')
-            if message and len(message.strip()) > 10:
-                sample_messages.append(message[:200])
+        # Build RAG context
+        rag_context = ""
+        if relevant_rules:
+            important_patterns = self.rag_manager.get_important_patterns(relevant_rules)
+
+            rag_context = f"""
+CONTEXT RULES APPLIED:
+{chr(10).join(f"• Rule {rule.id} ({rule.context}): Important={rule.important}, Ignore={rule.ignore}" for rule in relevant_rules)}
+
+IMPORTANT PATTERNS TO LOOK FOR: {', '.join(important_patterns)}
+
+PATTERNS ALREADY FILTERED OUT: {', '.join([f"{rule.context}:{rule.ignore}" for rule in relevant_rules if rule.ignore])}
+"""
 
         prompt = f"""
-You are a senior banking systems analyst investigating a customer dispute.
+You are an expert system analyst determining if a request trace is relevant to a user's query.
+You have access to context rules that help identify what's important vs what should be ignored.
 
-CUSTOMER DISPUTE: {dispute_text[:300]}
+ORIGINAL USER QUERY: {original_text}
 
-TRACE DETAILS:
-- Trace ID: {trace_id}
-- Total Log Entries: {len(trace_entries)}
+EXTRACTED PARAMETERS:
+- Domain: {parameters.get('domain', 'N/A')}
+- Query Keys: {parameters.get('query_keys', [])}
+- Time Frame: {parameters.get('time_frame', 'N/A')}
+- Additional Parameters: {json.dumps({k: v for k, v in parameters.items() if k not in ['domain', 'query_keys', 'time_frame']}, indent=2)}
+
+{rag_context}
+
+TRACE INFORMATION:
+- Trace ID: {trace_info.get('trace_id', 'unknown')}
+- Timestamp: {trace_info.get('timestamp', 'N/A')}
+- Total Log Entries: {trace_info.get('total_entries', 0)}
+- Services Involved: {', '.join(service_names[:5])}
+- Key Operations: {', '.join(operations[:10])}
 
 SAMPLE LOG MESSAGES:
-{chr(10).join(f"• {msg}" for msg in sample_messages[:8])}
+{chr(10).join(f"• {msg}" for msg in log_samples[:10])}
 
-Analyze this trace and provide your expert assessment in JSON format:
+TIMELINE SUMMARY:
+{timeline_summary}
 
+ANALYSIS REQUIRED:
+Determine if this trace is relevant to the user's query by analyzing:
+1. Does the trace contain operations related to the query domain ({parameters.get('domain', 'N/A')})?
+2. Do the log messages contain the query keys ({parameters.get('query_keys', [])})?
+3. Does the timestamp match the requested time frame ({parameters.get('time_frame', 'N/A')})?
+4. Are there any operations or data that directly address the user's question?
+5. Consider the IMPORTANT PATTERNS defined in the context rules
+6. Even if not directly matching, could this trace provide useful context?
+
+IMPORTANT: Use the context rules to boost relevance scores for traces containing important patterns
+and to understand what activities are just maintenance/noise.
+
+Provide analysis in JSON format:
 {{
     "relevance_score": <0-100>,
-    "request_summary": "<what the request was attempting to do or what was it about>",
-    "request_outcome": "<successful|failed|timeout|partial|unknown>",
-    "key_finding": "<main conclusion about what happened>",
-    "primary_issue": "<system_error|user_error|network_issue|timeout|validation_error|normal_flow|other>",
-    "confidence_level": "<HIGH|MEDIUM|LOW>",
-    "evidence_found": ["<specific evidence from logs>"],
-    "timeline_summary": "<step-by-step summary of what happened>",
-    "customer_claim_assessment": "<supported|contradicted|partially_supported|insufficient_evidence>",
-    "root_cause_analysis": "<likely root cause based on logs>",
-    "recommendation": "<specific next steps needed>"
+    "confidence_score": <0-100>,
+    "matching_elements": ["<specific elements that match the query>"],
+    "non_matching_elements": ["<elements that don't match>"],
+    "key_findings": ["<important discoveries about relevance>"],
+    "domain_match": <true/false>,
+    "time_match": <true/false>,
+    "keyword_matches": ["<specific keyword matches found>"],
+    "important_pattern_matches": ["<matches from RAG important patterns>"],
+    "recommendation": "<INCLUDE|EXCLUDE|REVIEW - with brief explanation>",
+    "reasoning": "<detailed explanation of relevance determination>"
 }}
 """
 
@@ -367,7 +482,7 @@ Analyze this trace and provide your expert assessment in JSON format:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a senior banking systems analyst. Provide thorough, evidence-based analysis."
+                        "content": "You are an expert at analyzing system logs and determining relevance to user queries. Use provided context rules to make better relevance decisions. Be precise and thorough in your analysis."
                     },
                     {
                         "role": "user",
@@ -377,133 +492,267 @@ Analyze this trace and provide your expert assessment in JSON format:
             )
 
             raw_response = response["message"]["content"].strip()
-            analysis = self._safe_parse_json(raw_response, self._default_trace_analysis)
+            analysis = self._safe_parse_json(raw_response)
 
-            # Add computed fields
-            analysis['trace_id'] = trace_id
-            analysis['total_entries'] = len(trace_entries)
-
-            return analysis
+            # Ensure all required fields are present
+            return self._validate_analysis_result(analysis)
 
         except Exception as e:
-            logger.error(f"Error analyzing trace {trace_id}: {e}")
-            return self._default_trace_analysis(trace_id)
+            logger.error(f"Error in relevance analysis: {e}")
+            return self._default_analysis_result()
 
-    def _assess_overall_quality(self, original_context: str, search_results: Dict, trace_data: Dict,
-                                parameters: Dict) -> Dict:
-        """Assess overall quality of the search and analysis."""
+    def _extract_trace_id(self, content: str) -> str:
+        """Extract trace ID from content"""
+        trace_match = re.search(r'Trace ID:\s*([a-f0-9]+)', content)
+        return trace_match.group(1) if trace_match else 'unknown'
 
-        prompt = f"""
-Rate overall log search quality for banking dispute. JSON only.
-
-CONTEXT: {original_context[:150]}
-RESULTS: {search_results.get('total_files', 0)} files, {search_results.get('total_matches', 0)} matches, {len(trace_data.get('all_trace_data', {}))} traces
-
-Rate 0-100 for:
-- COMPLETENESS: Sufficient data to understand issue?
-- RELEVANCE: Data relates to the dispute?
-- COVERAGE: Transaction flow adequately covered?
-
-JSON format:
-{{
-    "completeness_score": <number>,
-    "relevance_score": <number>,
-    "coverage_score": <number>,
-    "overall_confidence": <average>,
-    "status": "<one line assessment>",
-    "key_gaps": ["<gap1>", "<gap2>"]
-}}
-"""
+    def _extract_trace_info(self, content: str) -> Dict[str, Any]:
+        """
+        Extract key information from trace file content.
+        """
+        info = {
+            'trace_id': 'unknown',
+            'timestamp': None,
+            'total_entries': 0,
+            'service_names': [],
+            'operations': [],
+            'log_samples': [],
+            'timeline_summary': '',
+            'has_errors': False,
+            'error_messages': []
+        }
 
         try:
-            response = self.client.chat(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "Banking analyst. JSON only."},
-                    {"role": "user", "content": prompt}
-                ]
-            )
+            # Extract trace ID
+            trace_match = re.search(r'Trace ID:\s*([a-f0-9]+)', content)
+            if trace_match:
+                info['trace_id'] = trace_match.group(1)
 
-            raw_response = response["message"]["content"].strip()
-            return self._safe_parse_json(raw_response, self._default_quality_assessment)
+            # Extract timestamp
+            timestamp_match = re.search(r'Generated:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', content)
+            if timestamp_match:
+                info['timestamp'] = timestamp_match.group(1)
+
+            # Extract total entries
+            entries_match = re.search(r'Total Log Entries:\s*(\d+)', content)
+            if entries_match:
+                info['total_entries'] = int(entries_match.group(1))
+
+            # Extract service names
+            service_matches = re.findall(r'Service:\s*([^\n]+)', content)
+            info['service_names'] = list(set(service_matches))
+
+            # Extract operations/methods
+            method_matches = re.findall(r'Method:\s*([^\n]+)', content)
+            operation_matches = re.findall(r'Method/Operation[:\s]*([^\n]+)', content)
+            info['operations'] = list(set(method_matches + operation_matches))
+
+            # Extract log samples
+            log_content_matches = re.findall(r'Log Content:\s*-+\s*([^-]+?)(?=Raw Values:|LOG ENTRY|$)', content,
+                                             re.DOTALL)
+            info['log_samples'] = [log.strip() for log in log_content_matches if log.strip()][:20]
+
+            # Extract timeline summary
+            timeline_match = re.search(r'Timeline Summary:\s*([^\n]+)', content)
+            if timeline_match:
+                info['timeline_summary'] = timeline_match.group(1)
+
+            # Check for errors
+            error_patterns = [
+                r'Level:\s*ERROR',
+                r'error',
+                r'exception',
+                r'failed',
+                r'failure'
+            ]
+            for pattern in error_patterns:
+                if re.search(pattern, content, re.IGNORECASE):
+                    info['has_errors'] = True
+                    break
+
+            # Extract error messages
+            error_matches = re.findall(r'(?:error|exception)[:\s]*([^\n]+)', content, re.IGNORECASE)
+            info['error_messages'] = list(set(error_matches))[:10]
 
         except Exception as e:
-            logger.error(f"Error in overall quality assessment: {e}")
-            return self._default_quality_assessment()
+            logger.error(f"Error extracting trace info: {e}")
 
-    def _parse_log_file(self, file_path: str) -> List[Dict[str, Any]]:
-        """Parse a single log file and return list of log entries."""
-        import json
-        from datetime import datetime
+        return info
 
-        entries = []
+    def _determine_relevance_level(self, score: float) -> RelevanceLevel:
+        """
+        Determine relevance level based on score.
+        """
+        if score >= self.HIGHLY_RELEVANT_THRESHOLD:
+            return RelevanceLevel.HIGHLY_RELEVANT
+        elif score >= self.RELEVANT_THRESHOLD:
+            return RelevanceLevel.RELEVANT
+        elif score >= self.POTENTIALLY_RELEVANT_THRESHOLD:
+            return RelevanceLevel.POTENTIALLY_RELEVANT
+        else:
+            return RelevanceLevel.NOT_RELEVANT
 
+    def _read_trace_file(self, file_path: str) -> Optional[str]:
+        """
+        Read content from trace file.
+        """
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            # Check if this is Loki format
-            if 'data' in data and 'result' in data['data']:
-                results = data['data']['result']
-
-                for result in results:
-                    if 'stream' in result and 'values' in result:
-                        stream_metadata = result['stream']
-                        values = result['values']
-
-                        for value_pair in values:
-                            if len(value_pair) >= 2:
-                                timestamp_ns = value_pair[0]
-                                message = value_pair[1]
-
-                                # Convert nanosecond timestamp to datetime
-                                timestamp = None
-                                try:
-                                    if isinstance(timestamp_ns, str):
-                                        timestamp_sec = int(timestamp_ns) / 1e9
-                                        timestamp = datetime.fromtimestamp(timestamp_sec)
-                                except:
-                                    timestamp = timestamp_ns
-
-                                # Create entry with both stream metadata and values
-                                entry = {
-                                    'timestamp': timestamp,
-                                    'message': message,
-                                    'service_name': stream_metadata.get('service_name', 'Unknown'),
-                                    'severity_text': stream_metadata.get('severity_text', 'INFO'),
-                                    'trace_id': stream_metadata.get('trace_id'),
-                                    'span_id': stream_metadata.get('span_id'),
-                                    'host_name': stream_metadata.get('host_name'),
-                                    'service_namespace': stream_metadata.get('service_namespace'),
-                                    # Store original structure for compatibility
-                                    'stream': stream_metadata,
-                                    'values': [value_pair],
-                                    'raw_content': message
-                                }
-
-                                entries.append(entry)
-
-            # If not Loki format, try other parsing methods
-            else:
-                # Fallback to existing parse_loki_json if available
-                from tools.loki.loki_log_analyser import parse_loki_json
-                entries = parse_loki_json([file_path])
-
+                return f.read()
         except Exception as e:
-            logger.error(f"Error parsing log file {file_path}: {e}")
+            logger.error(f"Error reading file {file_path}: {e}")
+            return None
 
-        return entries
+    def _generate_summary_report(
+            self,
+            original_text: str,
+            parameters: Dict[str, Any],
+            all_results: List[RelevanceResult],
+            highly_relevant: List[RelevanceResult],
+            relevant: List[RelevanceResult],
+            potentially_relevant: List[RelevanceResult],
+            not_relevant: List[RelevanceResult],
+            ignored: List[RelevanceResult],
+            processing_time: float,
+            applied_rules: List[ContextRule]
+    ) -> Dict[str, Any]:
+        """
+        Generate a summary report of the relevance analysis.
+        Enhanced with RAG context information.
+        """
+        # Calculate statistics
+        analyzed_results = [r for r in all_results if r.relevance_level != RelevanceLevel.IGNORED]
+        avg_relevance_score = sum(r.relevance_score for r in analyzed_results) / len(
+            analyzed_results) if analyzed_results else 0
+        avg_confidence_score = sum(r.confidence_score for r in analyzed_results) / len(
+            analyzed_results) if analyzed_results else 0
 
-    def _group_entries_by_trace(self, entries: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-        """Group log entries by trace_id."""
-        trace_groups = {}
-        for entry in entries:
-            trace_id = entry.get('trace_id')
-            if trace_id:
-                if trace_id not in trace_groups:
-                    trace_groups[trace_id] = []
-                trace_groups[trace_id].append(entry)
-        return trace_groups
+        # Find most common matching elements
+        all_matching_elements = []
+        for result in all_results:
+            all_matching_elements.extend(result.matching_elements)
+
+        matching_element_counts = {}
+        for element in all_matching_elements:
+            matching_element_counts[element] = matching_element_counts.get(element, 0) + 1
+
+        top_matching_elements = sorted(
+            matching_element_counts.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:10]
+
+        return {
+            "analysis_timestamp": dt.now().isoformat(),
+            "original_query": original_text,
+            "search_parameters": parameters,
+            "applied_context_rules": [
+                {
+                    "id": rule.id,
+                    "context": rule.context,
+                    "important": rule.important,
+                    "ignore": rule.ignore,
+                    "description": rule.description
+                }
+                for rule in applied_rules
+            ],
+            "summary_statistics": {
+                "total_files_analyzed": len(all_results),
+                "highly_relevant_count": len(highly_relevant),
+                "relevant_count": len(relevant),
+                "potentially_relevant_count": len(potentially_relevant),
+                "not_relevant_count": len(not_relevant),
+                "ignored_count": len(ignored),
+                "average_relevance_score": round(avg_relevance_score, 2),
+                "average_confidence_score": round(avg_confidence_score, 2),
+                "processing_time_seconds": round(processing_time, 2)
+            },
+            "top_matching_elements": [
+                {"element": elem, "occurrences": count}
+                for elem, count in top_matching_elements
+            ],
+            "ignored_patterns_summary": self._get_ignored_patterns_summary(ignored),
+            "recommendations": self._generate_recommendations(
+                highly_relevant, relevant, potentially_relevant, ignored, parameters
+            )
+        }
+
+    def _get_ignored_patterns_summary(self, ignored_results: List[RelevanceResult]) -> Dict[str, int]:
+        """Get summary of ignored patterns"""
+        pattern_counts = {}
+        for result in ignored_results:
+            for pattern in result.ignored_patterns:
+                pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
+        return pattern_counts
+
+    def _generate_recommendations(
+            self,
+            highly_relevant: List[RelevanceResult],
+            relevant: List[RelevanceResult],
+            potentially_relevant: List[RelevanceResult],
+            ignored: List[RelevanceResult],
+            parameters: Dict[str, Any]
+    ) -> List[str]:
+        """
+        Generate recommendations based on analysis results.
+        Enhanced with RAG context information.
+        """
+        recommendations = []
+
+        total_relevant = len(highly_relevant) + len(relevant)
+        total_ignored = len(ignored)
+
+        if total_ignored > 0:
+            recommendations.append(
+                f"RAG Context Rules filtered out {total_ignored} irrelevant traces (maintenance/scheduled activities)")
+
+        if total_relevant == 0:
+            recommendations.append("No directly relevant traces found. Consider:")
+            recommendations.append("- Expanding the search time frame")
+            recommendations.append("- Checking if the query keywords are too specific")
+            recommendations.append("- Verifying the domain parameter is correct")
+            recommendations.append("- Reviewing the RAG context rules to ensure they're not too restrictive")
+
+            if len(potentially_relevant) > 0:
+                recommendations.append(
+                    f"- Review the {len(potentially_relevant)} potentially relevant traces for indirect evidence")
+
+        elif total_relevant < 5:
+            recommendations.append(f"Found {total_relevant} relevant traces. Consider:")
+            recommendations.append("- These traces should be prioritized for detailed analysis")
+            recommendations.append("- Check if additional time periods should be searched")
+
+            if total_ignored > total_relevant:
+                recommendations.append("- Consider refining RAG rules if too many traces are being ignored")
+
+        else:
+            recommendations.append(f"Found {total_relevant} relevant traces:")
+            recommendations.append(f"- {len(highly_relevant)} highly relevant traces should be analyzed first")
+            recommendations.append("- Focus on traces with highest relevance scores")
+            recommendations.append("- Look for patterns across multiple traces")
+
+        return recommendations
+
+    def _safe_parse_json(self, raw: str) -> Dict[str, Any]:
+        """
+        Safely parse JSON from LLM response.
+        """
+        text = raw.strip()
+
+        # Remove any markdown code blocks
+        text = re.sub(r'```json\s*', '', text)
+        text = re.sub(r'```\s*$', '', text)
+
+        # Extract JSON block
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            text = match.group(0)
+
+        try:
+            return self._safe_parse_json(text)
+        except Exception as e:
+            logger.error(f"Safe JSON parse error: {e}")
+            return self._default_analysis_result()
 
     def _safe_parse_json(self, raw: str, fallback_fn=None):
         """Parse JSON safely with fallback."""
@@ -527,44 +776,238 @@ JSON format:
             else:
                 return self._default_trace_analysis()
 
-    def _default_trace_analysis(self, trace_id: str = None) -> Dict:
-        """Default trace analysis structure."""
-        return {
-            "trace_id": trace_id or "unknown",
-            "relevance_score": 50,
-            "request_summary": "Analysis could not be completed",
-            "transaction_outcome": "unknown",
-            "key_finding": "Analysis could not be completed",
-            "primary_issue": "insufficient_data",
-            "confidence_level": "LOW",
-            "evidence_found": ["Analysis processing error"],
-            "critical_indicators": ["Analysis processing error"],
-            "concerns": ["Unable to complete automated analysis"],
-            "timeline_summary": "Timeline analysis not available",
-            "customer_claim_assessment": "insufficient_evidence",
-            "root_cause_analysis": "Analysis processing error",
-            "recommendation": "Manual review required",
-            "technical_details": "Analysis processing error"
+    def _validate_analysis_result(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate and ensure all required fields are present in analysis result.
+        """
+        required_fields = {
+            'relevance_score': 50,
+            'confidence_score': 50,
+            'matching_elements': [],
+            'non_matching_elements': [],
+            'key_findings': [],
+            'recommendation': 'REVIEW - Unable to determine relevance'
         }
 
-    def _default_quality_assessment(self) -> Dict:
-        """Default quality assessment structure."""
-        return {
-            "completeness_score": 50,
-            "relevance_score": 50,
-            "coverage_score": 50,
-            "overall_confidence": 50,
-            "status": "Default assessment applied due to processing error",
-            "key_gaps": ["Assessment processing error"]
-        }
+        for field, default_value in required_fields.items():
+            if field not in analysis:
+                analysis[field] = default_value
 
-    def _create_empty_result(self) -> Dict:
-        """Create empty result structure when no data is available."""
+        # Ensure scores are within valid range
+        analysis['relevance_score'] = max(0, min(100, analysis.get('relevance_score', 50)))
+        analysis['confidence_score'] = max(0, min(100, analysis.get('confidence_score', 50)))
+
+        return analysis
+
+    def _default_analysis_result(self) -> Dict[str, Any]:
+        """
+        Default analysis result for errors.
+        """
         return {
-            'analysis_timestamp': dt.now().isoformat(),
-            'comprehensive_files_created': [],
-            'master_summary_file': None,
-            'total_traces_analyzed': 0,
+            'relevance_score': 0,
             'confidence_score': 0,
-            'message': 'No trace data available for analysis'
+            'matching_elements': [],
+            'non_matching_elements': ['Analysis failed'],
+            'key_findings': ['Unable to complete analysis'],
+            'domain_match': False,
+            'time_match': False,
+            'keyword_matches': [],
+            'recommendation': 'REVIEW - Analysis error',
+            'reasoning': 'Analysis could not be completed due to processing error'
         }
+
+    def _create_error_result(self, file_path: str, error_message: str) -> RelevanceResult:
+        """
+        Create an error result for failed file processing.
+        """
+        return RelevanceResult(
+            file_path=file_path,
+            trace_id='unknown',
+            relevance_level=RelevanceLevel.UNKNOWN,
+            relevance_score=0,
+            confidence_score=0,
+            matching_elements=[],
+            non_matching_elements=[error_message],
+            key_findings=[error_message],
+            recommendation='REVIEW - File processing error',
+            analysis_timestamp=dt.now().isoformat(),
+            processing_time_ms=0,
+            applied_rules=[],
+            ignored_patterns=[]
+        )
+
+    def export_results_to_file(
+            self,
+            results: Dict[str, Any],
+            output_filename: str = None
+    ) -> str:
+        """
+        Export analysis results to a formatted file.
+        """
+        if output_filename is None:
+            output_filename = f"relevance_analysis_{dt.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+        output_path = self.output_dir / output_filename
+
+        try:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(results, f, indent=2, default=str)
+
+            logger.info(f"Results exported to: {output_path}")
+            return str(output_path)
+
+        except Exception as e:
+            logger.error(f"Error exporting results: {e}")
+            raise
+
+    def reload_context_rules(self):
+        """
+        Reload context rules from file (useful for runtime updates)
+        """
+        self.rag_manager.load_context_rules()
+        logger.info(f"Reloaded {len(self.rag_manager.rules)} context rules")
+
+    def add_context_rule(self, rule: ContextRule) -> bool:
+        """
+        Add a new context rule and save to file
+        """
+        try:
+            # Add to memory
+            self.rag_manager.rules.append(rule)
+
+            # Append to file
+            with open(self.rag_manager.context_file_path, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    rule.id, rule.context, rule.important,
+                    rule.ignore, rule.description or ''
+                ])
+
+            logger.info(f"Added new context rule: {rule.id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error adding context rule: {e}")
+            return False
+
+
+# Example usage and context file creation utility
+def create_sample_context_file(filename: str = "context_rules.csv"):
+    """
+    Create a sample context rules file with common patterns
+    """
+    sample_rules = [
+        {
+            'id': '1',
+            'context': 'mfs',
+            'important': 'processPayment,transferMoney,balanceInquiry,transaction_created,payment_processed',
+            'ignore': 'MFS_TRANSFER_STATUS_UPDATE_SCHEDULER_INVOCATION_TOPIC,HEARTBEAT,HEALTH_CHECK,STATUS_SYNC',
+            'description': 'MFS payment processing - ignore scheduled status updates and health checks'
+        },
+        {
+            'id': '2',
+            'context': 'transactions',
+            'important': 'transaction_created,payment_processed,amount,merchant,transfer_completed',
+            'ignore': 'session_cleanup,cache_refresh,log_rotation,connection_pool_stats',
+            'description': 'Transaction processing - focus on actual transactions, ignore maintenance'
+        },
+        {
+            'id': '3',
+            'context': 'bkash',
+            'important': 'bkash_payment,mobile_wallet,OTP_verification,payment_request,fund_transfer',
+            'ignore': 'bkash_heartbeat,connection_pool_stats,session_timeout_cleanup',
+            'description': 'bKash payments - ignore connection maintenance and heartbeats'
+        },
+        {
+            'id': '4',
+            'context': 'merchant',
+            'important': 'merchant_payment,pos_transaction,merchant_settlement,qr_payment',
+            'ignore': 'merchant_heartbeat,daily_summary_job,merchant_sync_task',
+            'description': 'Merchant transactions - ignore scheduled sync and summary jobs'
+        },
+        {
+            'id': '5',
+            'context': 'npsb',
+            'important': 'npsb_transfer,interbank_transfer,swift_message,settlement',
+            'ignore': 'npsb_heartbeat,system_health_check,connection_test',
+            'description': 'NPSB interbank transfers - ignore system health monitoring'
+        },
+        {
+            'id': '6',
+            'context': 'beftn',
+            'important': 'beftn_transfer,batch_processing,file_upload,transfer_confirmation',
+            'ignore': 'batch_scheduler,file_cleanup,archive_old_files',
+            'description': 'BEFTN bulk transfers - ignore batch scheduling and cleanup'
+        }
+    ]
+
+    try:
+        with open(filename, 'w', newline='', encoding='utf-8') as f:
+            fieldnames = ['id', 'context', 'important', 'ignore', 'description']
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(sample_rules)
+
+        print(f"Created sample context file: {filename}")
+        print("You can edit this file to customize the rules for your specific use case.")
+
+    except Exception as e:
+        print(f"Error creating sample context file: {e}")
+
+
+# Example usage
+if __name__ == "__main__":
+    from ollama import Client
+
+    # Create sample context file first
+    create_sample_context_file("../app_settings/context_rules.csv")
+
+    # Initialize the agent
+    client = Client(host='http://localhost:11434')
+    agent = RelevanceAnalyzerAgent(
+        client,
+        model='deepseek-r1:8b',
+        context_file="../app_settings/context_rules.csv"
+    )
+
+    # Example parameters
+    original_text = "Can you find any mfs on july 15 2025?"
+    parameters = {
+        "domain": "transactions",
+        "query_keys": ["upay"],
+        "time_frame": "2025-07-16"
+    }
+
+    # Example trace files
+    trace_dir = "../comprehensive_analysis"
+    trace_files = [
+        os.path.join(trace_dir, f)
+        for f in os.listdir(trace_dir)
+        if f.startswith("trace_report_") and f.endswith(".txt")
+    ]
+
+    # Analyze relevance with RAG context
+    results = agent.analyze_batch_relevance(
+        original_text=original_text,
+        parameters=parameters,
+        trace_files=trace_files
+    )
+
+    # Export results
+    output_file = agent.export_results_to_file(results)
+
+    print(f"\nAnalysis complete. Results saved to: {output_file}")
+    print(f"Highly relevant files: {len(results['highly_relevant'])}")
+    print(f"Relevant files: {len(results['relevant'])}")
+    print(f"Potentially relevant files: {len(results['potentially_relevant'])}")
+    print(f"Not relevant files: {len(results['not_relevant'])}")
+    print(f"Ignored files (by RAG rules): {len(results['ignored'])}")
+
+    # Show which context rules were applied
+    print(f"\nContext rules applied: {results['context_rules_applied']}")
+
+    # Show ignored patterns summary
+    if 'ignored_patterns_summary' in results['summary']:
+        print(f"\nIgnored patterns summary:")
+        for pattern, count in results['summary']['ignored_patterns_summary'].items():
+            print(f"  {pattern}: {count} files")

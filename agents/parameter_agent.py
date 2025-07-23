@@ -12,6 +12,28 @@ logger = logging.getLogger(__name__)
 # ---- CONFIGURATION ----
 OLLAMA_HOST = "http://localhost:11434"
 DOMAIN_KEYWORDS = ["NPSB", "BEFTN", "FUNDFTRANSFER", "PAYMENT", "BKASH", "QR"]
+allowed_query_keys = [
+    "merchant", "amount", "transaction_id", "customer_id",
+    "mfs", "bkash", "nagad", "upay", "rocket", "qr", "npsb", "beftn",
+    "fund_transfer", "payment", "balance", "fee", "status",
+    "product_id", "category", "rating", "review_text", "user_id"
+]
+
+excluded_query_keys = [
+    "password", "token", "secret", "api_key", "private_key",
+    "internal_id", "system_log", "debug_info", "date", "amount"
+]
+
+allowed_domains = [
+    "transactions", "customers", "users", "products", "reviews",
+    "payments", "merchants", "accounts", "orders", "analytics"
+]
+
+excluded_domains = [
+    "system", "logs", "admin", "security", "internal",
+    "debug", "config", "authentication"
+]
+
 
 # ---- HEALTH CHECK ----
 def is_ollama_running(host: str = OLLAMA_HOST) -> bool:
@@ -36,24 +58,32 @@ class ParametersAgent:
 
         prompt = (
             f"""You are a parameter extractor. Extract parameters and output ONLY valid JSON in this exact format:
-
 {{"time_frame": "YYYY-MM-DD or null", "domain": "domain_name", "query_keys": ["key1", "key2", "key3"]}}
 
 RULES:
 1. query_keys must be a flat array of strings - NO nested objects or arrays
-2. Each query_key should be a simple field name (e.g., "merchant", "amount", "date")
-3. Domain should be the main data category (e.g., "transactions", "users", "products")
+2. Each query_key should be a simple field name
+3. Domain should be the main data category
 4. If no time mentioned, set time_frame to null
+
+ALLOWED query_keys: {", ".join(allowed_query_keys)}
+EXCLUDED query_keys: {", ".join(excluded_query_keys)}
+
+ALLOWED domains: {", ".join(allowed_domains)}
+EXCLUDED domains: {", ".join(excluded_domains)}
 
 EXAMPLES:
 User: "Show me merchant transactions over $500 last week"
-Output: {{"time_frame": "2025-07-14", "domain": "transactions", "query_keys": ["merchant", "amount", "date"]}}
+Output: {{"time_frame": "2025-07-14", "domain": "transactions", "query_keys": ["merchant"]}}
 
 User: "Find customers who bought electronics in January"
-Output: {{"time_frame": "2025-01-01", "domain": "customers", "query_keys": ["customer_id", "product_category", "purchase_date"]}}
+Output: {{"time_frame": "2025-01-01", "domain": "customers", "query_keys": ["customer_id", "category"]}}
 
 User: "List all product reviews with ratings"
 Output: {{"time_frame": null, "domain": "reviews", "query_keys": ["product_id", "rating", "review_text"]}}
+
+User: "Get bKash payments from this month"
+Output: {{"time_frame": "2025-07-01", "domain": "payments", "query_keys": ["bkash", "mfs", "processpayment"]}}
 
 User text: {text}
 

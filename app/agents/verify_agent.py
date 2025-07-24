@@ -913,10 +913,10 @@ def create_sample_context_file(filename: str = "context_rules.csv"):
         },
         {
             'id': '3',
-            'context': 'bkash',
-            'important': 'bkash_payment,mobile_wallet,OTP_verification,payment_request,fund_transfer',
-            'ignore': 'bkash_heartbeat,connection_pool_stats,session_timeout_cleanup',
-            'description': 'bKash payments - ignore connection maintenance and heartbeats'
+            "context": "bkash",
+            "important": "checkBkashProductInfo,checkBkashInfo,executeBkashTransaction,checkBkashTransactionStatus,mapToBkashProductInfoCbsRequest,mapToBkashCustomerKYCRequest,mapToBkashTransactionResponse,mapToBkashTransactionStatusResponse",
+            "ignore": "getActiveProvidersList,loadFieldDefinitions,fetchMfsConfig,fetchExternalApiDefinitions,updateDefinitionFields,extractBkashInfoCheckResponseParams,verifyProductResponseStatus,verifyApiResponseStatus,verifyProductTrustLevel,prepareTransactionStatusCheckRequest",
+            "description": "bKash MFS service – focus on product info lookup, customer KYC, transaction initiation and status checks; ignore config loading, mapping helpers, and validation helpers"
         },
         {
             'id': '4',
@@ -938,6 +938,13 @@ def create_sample_context_file(filename: str = "context_rules.csv"):
             'important': 'beftn_transfer,batch_processing,file_upload,transfer_confirmation',
             'ignore': 'batch_scheduler,file_cleanup,archive_old_files',
             'description': 'BEFTN bulk transfers - ignore batch scheduling and cleanup'
+        },
+        {
+            "id": "7",
+            "context": "upay",
+            "important": "info_check,kyc_verification,transaction,external_transaction,status_check,payment,auth_token",
+            "ignore": "getActiveProvidersList,loadFieldDefinitions,fetchMfsConfig,fetchExternalApiDefinitions,updateDefinitionFields,extractInfoCheckResponseParams,verifyApiResponseStatus,putAuthHeaders",
+            "description": "UPAY MFS service – focus on KYC verification, transaction processing and status checks; ignore config loading and helper methods"
         }
     ]
 
@@ -971,11 +978,11 @@ if __name__ == "__main__":
     )
 
     # Example parameters
-    original_text = "Can you find any mfs on july 15 2025?"
+    original_text = "Can you find any bkash transactions on july 24 2025?"
     parameters = {
         "domain": "transactions",
-        "query_keys": ["upay"],
-        "time_frame": "2025-07-16"
+        "query_keys": ["bkash"],
+        "time_frame": "2025-07-24"
     }
 
     # Example trace files

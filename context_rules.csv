@@ -1,0 +1,4 @@
+id,context,important,ignore,description
+1,mfs,"processPayment,transferMoney,balanceInquiry","MFS_TRANSFER_STATUS_UPDATE_SCHEDULER_INVOCATION_TOPIC,HEARTBEAT,HEALTH_CHECK",MFS payment processing - ignore scheduled status updates and health checks
+2,transactions,"transaction_created,payment_processed,amount,merchant","session_cleanup,cache_refresh,log_rotation","Transaction processing - focus on actual transactions, ignore maintenance"
+3,bkash,"bkash_payment,mobile_wallet,OTP_verification","bkash_heartbeat,connection_pool_stats",bKash payments - ignore connection maintenance

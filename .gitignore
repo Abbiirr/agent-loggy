@@ -22,3 +22,7 @@ app/agents/relevance_analysis/
 app/loki_logs/
 
 .env
+
+app/verification_reports/
+
+comprehensive_analysis/

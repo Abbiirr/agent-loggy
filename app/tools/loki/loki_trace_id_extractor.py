@@ -28,7 +28,7 @@ def gather_logs_for_trace_ids(
     end_date_str: str,
     time_str: Union[str, None] = None,
     end_time_str: Union[str, None] = None,
-    output_dir: str = 'trace_logs'
+    output_dir: str = 'app/trace_logs'
 ) -> List[str]:
     """
     For each trace_id, download its logs into a separate JSON file under output_dir.

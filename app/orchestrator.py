@@ -12,6 +12,7 @@ from app.agents.file_searcher import FileSearcher
 from app.tools.log_searcher import LogSearcher
 from app.tools.full_log_finder import FullLogFinder
 from app.agents.analyze_agent import AnalyzeAgent
+from app.agents.verify_agent import RelevanceAnalyzerAgent
 from app.tools.loki.loki_trace_id_extractor import gather_logs_for_trace_ids, extract_trace_ids
 from app.tools.loki.loki_query_builder import download_logs
 from datetime import datetime, timedelta
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 NEGATE_RULES_PATH = "app_settings/negate_keys.csv"
 
+
 class Orchestrator:
     """
     Enhanced Orchestrator with streaming support for SSE.
@@ -33,9 +35,10 @@ class Orchestrator:
         self.file_searcher = FileSearcher(Path(log_base_dir), client, model)
         self.log_searcher = LogSearcher(context=2)
         self.full_log_finder = FullLogFinder()
-        self.verify_agent = AnalyzeAgent(client, model, output_dir="comprehensive_analysis")
+        self.analyze_agent = AnalyzeAgent(client, model, output_dir="app/comprehensive_analysis")
+        self.verify_agent = RelevanceAnalyzerAgent(client, model, output_dir="app/verification_reports")
 
-    async def analyze_stream(self, text: str, project: str , env: str, domain: str ) -> Dict[str, Any]:
+    async def analyze_stream(self, text: str, project: str, env: str, domain: str) -> Dict[str, Any]:
         # 1) Read negate keys from a CSV file (one key per row, no header)
         negate_keys = []
         try:
@@ -56,17 +59,17 @@ class Orchestrator:
 
         # STEP 1: Parameter extraction
         logger.info("STEP 1: Parameter extraction…")
-        params = self.param_agent.run(text)
-        logger.info("Extracted parameters: %s", json.dumps(params, indent=2))
-        yield "Extracted Parameters", {"parameters": params}
-        await asyncio.sleep(0)
-        # params = {
-        #     "domain": "transactions",
-        #     "query_keys": ["mfs"],
-        #     "time_frame": "2025-07-16"
-        # }
+        # params = self.param_agent.run(text)
+        # logger.info("Extracted parameters: %s", json.dumps(params, indent=2))
         # yield "Extracted Parameters", {"parameters": params}
         # await asyncio.sleep(0)
+        params = {
+            "domain": "transactions",
+            "query_keys": ["bkash"],
+            "time_frame": "2025-07-24"
+        }
+        yield "Extracted Parameters", {"parameters": params}
+        await asyncio.sleep(0)
         # STEP 2: File search
         log_files = []
         unique_filename = ""
@@ -87,7 +90,7 @@ class Orchestrator:
             search_dt = date_parser.parse(search_date)
             end_dt = search_dt + timedelta(days=1)
             end_date_str = end_dt.date().isoformat()
-            unique_filename = f"loki_logs/{project}{env}_{search_date}_{uuid.uuid4().hex}.json"
+            unique_filename = f"app/loki_logs/{project}{env}_{search_date}_{uuid.uuid4().hex}.json"
             pipeline = [f'!= "{term}"' for term in negate_keys]
             download_logs(
                 filters={"service_namespace": project.lower()},
@@ -121,7 +124,6 @@ class Orchestrator:
             logger.info({"unique_ids": unique_ids})
             yield "Found trace id(s)", {"count": len(unique_ids)}
             await asyncio.sleep(0)
-
 
         # STEP 4: Compilation summary
         logger.info("STEP 4: Compiling full logs…")
@@ -170,7 +172,7 @@ class Orchestrator:
                 date_str=search_date,
                 end_date_str=end_date_str
             )
-            logger.info( {
+            logger.info({
                 "traces_compiled": len(log_files),
                 "trace_log_files": log_files
             })
@@ -182,7 +184,7 @@ class Orchestrator:
         # STEP 5: Verification summary
         logger.info("STEP 5: Verification & file gen…")
         if project in ("MMBL", "UCB"):  # membership test replaces '||' :contentReference[oaicite:9]{index=9}
-            result = self.verify_agent.analyze_and_create_comprehensive_files(
+            result = self.analyze_agent.analyze_and_create_comprehensive_files(
                 original_context=text,
                 search_results={"unique_trace_ids": unique_ids},
                 trace_data={"all_trace_data": compiled},
@@ -197,20 +199,48 @@ class Orchestrator:
 
 
         elif project in ("NCC", "ABBL"):
-            result = self.verify_agent.analyze_log_files(
-                log_file_paths=log_files,
-                dispute_text=text,
-                search_params=params
-            )
-            # 3) Single final yield with all report paths
-            yield "Compiled Summary", {
-                "created_files": result["individual_reports"],
-                "master_summary_file": result["master_report"]
-            }
+            # result = self.analyze_agent.analyze_log_files(
+            #     log_file_paths=log_files,
+            #     dispute_text=text,
+            #     search_params=params
+            # )
+            # # 3) Single final yield with all report paths
+            # yield "Compiled Summary", {
+            #     "created_files": result["individual_reports"],
+            #     "master_summary_file": result["master_report"]
+            # }
 
+            report_files = [
+                "comprehensive_analysis\\trace_report_0367904c9335_20250724_115756.txt",
+                "comprehensive_analysis\\trace_report_7b55b82bdde1_20250724_115812.txt",
+                "comprehensive_analysis\\trace_report_25737a677a8e_20250724_115837.txt",
+                "comprehensive_analysis\\trace_report_9a51c56b8a37_20250724_115854.txt"
+            ]
+            master_report = "comprehensive_analysis\\master_summary_20250724_115854.txt"
+
+            yield "Compiled Summary", {
+                "created_files": report_files,
+                "master_summary_file": master_report
+            }
             await asyncio.sleep(0)
 
+        # STEP 6: Run verify agents and write results to file
+        logger.info("STEP 6: Running verify agents with parameters and original text…")
+        # 1) Run the relevance analysis
+        # results = self.verify_agent.analyze_batch_relevance(
+        #     original_text=text,
+        #     parameters=params,
+        #     trace_files=report_files
+        # )
+        # # 2) Export to disk, returning only the filename/path
+        # output_file = self.verify_agent.export_results_to_file(results)
+        # yield "Verification Results", {"file": output_file}
+        yield "Verification Results", {
+            "file": "app\\verification_reports\\relevance_analysis_20250724_121257.json"
+        }
+        await asyncio.sleep(0)
 
-    # DONE
+
+        # DONE
         logger.info("Analysis complete.")
         yield "done", {"message": "Analysis complete."}

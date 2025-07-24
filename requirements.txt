@@ -7,3 +7,8 @@ pydantic
 requests
 python-dateutil
 regex
+pydantic_settings
+alembic
+psycopg2-binary
+python-dotenv
+sqlalchemy

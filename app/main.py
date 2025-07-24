@@ -7,16 +7,21 @@ import sys
 import json
 import uuid
 from pathlib import Path
-from fastapi import FastAPI, Request, HTTPException, Query
+from fastapi import FastAPI, Request, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 from ollama import Client
 from fastapi.responses import FileResponse
 
-from orchestrator import Orchestrator
+from app.orchestrator import Orchestrator
 import httpx
-from schemas.StreamRequest import StreamRequest
+from app.schemas.StreamRequest import StreamRequest
+from app.schemas.ChatRequest import ChatRequest
+from app.schemas.ChatResponse import ChatResponse
 from pydantic import BaseModel
+from app.config import settings
+from alembic.config import Config
+from alembic import command
 
 # Setup logging
 logging.basicConfig(
@@ -26,7 +31,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-OLLAMA_HOST = "http://localhost:11434"
+OLLAMA_HOST = settings.OLLAMA_HOST
+ANALYSIS_DIR = settings.ANALYSIS_DIR
 
 
 # Health check for Ollama
@@ -53,7 +59,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    if not await is_ollama_running(OLLAMA_HOST):
+    if not await is_ollama_running(settings.OLLAMA_HOST):
         logger.critical("Ollama not running; start with 'ollama serve'.")
         sys.exit(1)
     logger.info("Ollama is up and running")
@@ -61,27 +67,13 @@ async def startup_event():
 
 # Create Ollama client and Orchestrator once
 client = Client(host=OLLAMA_HOST)
-orchestrator = Orchestrator(client, model="deepseek-r1:8b", log_base_dir="./data")
+orchestrator = Orchestrator(client, model="deepseek-r1:8b", log_base_dir="data")
 
 
-# Pydantic models for the chat interface
-class ChatRequest(BaseModel):
-    prompt: str
 
 
-class ChatResponse(BaseModel):
-    streamUrl: str
 
 
-class ChatRequest(BaseModel):
-    prompt: str
-    project: str
-    env: str
-    domain: str
-
-
-class ChatResponse(BaseModel):
-    streamUrl: str
 
 
 # Store active sessions (in production, use Redis or proper session management)
@@ -199,7 +191,6 @@ async def stream_analysis(req: StreamRequest):
 
     return EventSourceResponse(event_generator())
 
-ANALYSIS_DIR = r"K:\projects\ai\agent-loggy\comprehensive_analysis"
 
 @app.get("/download/")
 def download_file(filename: str = Query(..., description="Name of the file to download")):

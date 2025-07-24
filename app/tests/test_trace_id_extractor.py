@@ -1,5 +1,5 @@
 import pytest
-from tools.trace_id_extractor import TraceIDExtractor
+from app.tools.trace_id_extractor import TraceIDExtractor
 
 SAMPLE_LOG_ROW = """<log-row>
   <dateTime>2024-11-06/12:00:00.900/BDT</dateTime>

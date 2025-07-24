@@ -7,21 +7,21 @@ from pathlib import Path
 from typing import Dict, List, Any
 
 from ollama import Client
-from agents.parameter_agent import ParametersAgent
-from agents.file_searcher import FileSearcher
-from tools.log_searcher import LogSearcher
-from tools.full_log_finder import FullLogFinder
-from agents.analyze_agent import AnalyzeAgent
-from tools.loki.loki_trace_id_extractor import gather_logs_for_trace_ids, extract_trace_ids
-from tools.loki.loki_query_builder import download_logs
+from app.agents.parameter_agent import ParametersAgent
+from app.agents.file_searcher import FileSearcher
+from app.tools.log_searcher import LogSearcher
+from app.tools.full_log_finder import FullLogFinder
+from app.agents.analyze_agent import AnalyzeAgent
+from app.tools.loki.loki_trace_id_extractor import gather_logs_for_trace_ids, extract_trace_ids
+from app.tools.loki.loki_query_builder import download_logs
 from datetime import datetime, timedelta
 from dateutil import parser as date_parser
-from tools.loki.loki_log_report_generator import generate_comprehensive_report, parse_loki_json
+from app.tools.loki.loki_log_report_generator import generate_comprehensive_report, parse_loki_json
 import csv
 
 logger = logging.getLogger(__name__)
 
-NEGATE_RULES_PATH ="app_settings/negate_keys.csv"
+NEGATE_RULES_PATH = "app_settings/negate_keys.csv"
 
 class Orchestrator:
     """

@@ -5,7 +5,7 @@ import lzma
 import gzip
 import zipfile
 from pathlib import Path
-from typing import List, Union, Pattern, Dict, Tuple
+from typing import List, Union, Pattern, Dict
 
 
 class LogSearcher:
@@ -150,7 +150,7 @@ class LogSearcher:
         Returns:
             List of dictionaries with 'match', 'trace_id', 'line_number'
         """
-        from tools.trace_id_extractor import TraceIDExtractor
+        from app.tools.trace_id_extractor import TraceIDExtractor
 
         path = Path(path)
 

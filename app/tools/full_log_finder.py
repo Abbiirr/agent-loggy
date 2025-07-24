@@ -2,9 +2,8 @@
 
 import re
 from pathlib import Path
-from typing import List, Dict, Union, Optional
-from tools.log_searcher import LogSearcher
-from tools.trace_id_extractor import TraceIDExtractor
+from typing import List, Dict, Union
+from app.tools.log_searcher import LogSearcher
 
 
 class FullLogFinder:
@@ -145,11 +144,8 @@ class FullLogFinder:
 
     # tools/full_log_finder.py
 
-    import re
     from pathlib import Path
     from typing import List, Dict, Union, Optional
-    from tools.log_searcher import LogSearcher
-    from tools.trace_id_extractor import TraceIDExtractor
 
     class FullLogFinder:
         """

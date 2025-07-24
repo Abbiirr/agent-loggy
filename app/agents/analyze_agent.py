@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from ollama import Client
 import re, json
 from datetime import datetime as dt
@@ -486,7 +486,7 @@ JSON format:
             # If not Loki format, try other parsing methods
             else:
                 # Fallback to existing parse_loki_json if available
-                from tools.loki.loki_log_analyser import parse_loki_json
+                from app.tools.loki.loki_log_analyser import parse_loki_json
                 entries = parse_loki_json([file_path])
 
         except Exception as e:

@@ -1,7 +1,7 @@
 import json
 import os
 from typing import List, Set, Union, Dict
-from tools.loki.loki_query_builder import download_logs
+from app.tools.loki.loki_query_builder import download_logs
 
 def extract_trace_ids(json_file: str) -> List[str]:
     """

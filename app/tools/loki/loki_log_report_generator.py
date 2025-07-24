@@ -10,8 +10,6 @@ from typing import List, Dict, Any
 from xml.etree import ElementTree as ET
 from datetime import datetime
 
-from tools.loki.loki_query_builder import download_logs
-from tools.loki.loki_trace_id_extractor import extract_trace_ids, gather_logs_for_trace_ids
 
 def parse_loki_json(json_files):
     """

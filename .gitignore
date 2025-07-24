@@ -3,20 +3,22 @@
 
 __pycache__/
 
-data/
+app/data/
 
 trace_outputs/
 
 verification_output/
 
-comprehensive_analysis/
+app/comprehensive_analysis/
 
-tools/loki/trace_logs/
+app/tools/loki/trace_logs/
 
-tools/loki/test_reports/
+app/tools/loki/test_reports/
 
 trace_logs/
 
-agents/relevance_analysis/
+app/agents/relevance_analysis/
 
-loki_logs/
+app/loki_logs/
+
+.env

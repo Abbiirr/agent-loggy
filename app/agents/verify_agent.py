@@ -890,7 +890,158 @@ Provide analysis in JSON format:
             logger.error(f"Error adding context rule: {e}")
             return False
 
+    def get_verification_summary_string(self, results_file_path: str) -> str:
+        """
+        Generate a complete verification summary string with file categorization.
 
+        Args:
+            results_file_path: Path to the exported JSON results file
+
+        Returns:
+            str: Complete summary string with file lists
+        """
+        try:
+            with open(results_file_path, 'r', encoding='utf-8') as f:
+                results = json.load(f)
+
+            # Get the basic summary
+            basic_summary = self.parse_results_summary(results)
+
+            # Get file lists
+            highly_relevant_files = results.get('highly_relevant', [])
+            relevant_files = results.get('relevant', [])
+            potentially_relevant_files = results.get('potentially_relevant', [])
+            not_relevant_files = results.get('not_relevant', [])
+            ignored_files = results.get('ignored', [])
+
+            # Convert file paths to just filenames for cleaner output
+            def get_filenames(file_list):
+                return [Path(f).name for f in file_list]
+
+            # Combine highly relevant and relevant into "Relevant files"
+            all_relevant = get_filenames(highly_relevant_files + relevant_files)
+            less_relevant = get_filenames(potentially_relevant_files)
+            not_relevant = get_filenames(not_relevant_files + ignored_files)
+
+            # Build the complete string
+            summary_string = f"{basic_summary} Relevant files: {all_relevant}, Less Relevant Files: {less_relevant}, Not Relevant Files: {not_relevant}"
+
+            return summary_string
+
+        except Exception as e:
+            logger.error(f"Error generating verification summary string from {results_file_path}: {e}")
+            return f"Error processing verification results from {results_file_path}"
+
+    def get_verification_summary_string_detailed(self, results_file_path: str) -> str:
+        """
+        Generate a detailed verification summary string with separate highly relevant category.
+
+        Args:
+            results_file_path: Path to the exported JSON results file
+
+        Returns:
+            str: Detailed summary string with separate categories
+        """
+        try:
+            with open(results_file_path, 'r', encoding='utf-8') as f:
+                results = json.load(f)
+
+            # Get the basic summary
+            basic_summary = self.parse_results_summary(results)
+
+            # Get file lists
+            highly_relevant_files = results.get('highly_relevant', [])
+            relevant_files = results.get('relevant', [])
+            potentially_relevant_files = results.get('potentially_relevant', [])
+            not_relevant_files = results.get('not_relevant', [])
+            ignored_files = results.get('ignored', [])
+
+            # Convert file paths to just filenames for cleaner output
+            def get_filenames(file_list):
+                return [Path(f).name for f in file_list]
+
+            highly_relevant_names = get_filenames(highly_relevant_files)
+            relevant_names = get_filenames(relevant_files)
+            less_relevant_names = get_filenames(potentially_relevant_files)
+            not_relevant_names = get_filenames(not_relevant_files + ignored_files)
+
+            # Build the complete string with all categories
+            summary_string = (f"{basic_summary} "
+                              f"Highly Relevant files: {highly_relevant_names}, "
+                              f"Relevant files: {relevant_names}, "
+                              f"Less Relevant Files: {less_relevant_names}, "
+                              f"Not Relevant Files: {not_relevant_names}")
+
+            return summary_string
+
+        except Exception as e:
+            logger.error(f"Error generating detailed verification summary string from {results_file_path}: {e}")
+            return f"Error processing verification results from {results_file_path}"
+
+    def parse_results_summary(self, results: Dict[str, Any]) -> str:
+        """
+        Parse analysis results and return a human-readable summary string.
+
+        Args:
+            results: The results dictionary from analyze_batch_relevance()
+
+        Returns:
+            str: Human-readable summary of the analysis results
+        """
+        try:
+            stats = results.get('statistics', {})
+
+            total_files = stats.get('total_files', 0)
+            highly_relevant_count = stats.get('highly_relevant_count', 0)
+            relevant_count = stats.get('relevant_count', 0)
+            potentially_relevant_count = stats.get('potentially_relevant_count', 0)
+            not_relevant_count = stats.get('not_relevant_count', 0)
+            ignored_count = stats.get('ignored_count', 0)
+
+            # Build the summary string
+            summary_parts = []
+
+            # Total requests
+            if total_files > 0:
+                summary_parts.append(f"I have found a total of {total_files} requests")
+            else:
+                return "No requests were analyzed."
+
+            # Relevant categories
+            relevant_parts = []
+
+            if highly_relevant_count > 0:
+                relevant_parts.append(f"{highly_relevant_count} highly relevant")
+
+            if relevant_count > 0:
+                relevant_parts.append(f"{relevant_count} relevant")
+
+            if potentially_relevant_count > 0:
+                relevant_parts.append(f"{potentially_relevant_count} potentially relevant")
+
+            if not_relevant_count > 0:
+                relevant_parts.append(f"{not_relevant_count} not relevant")
+
+            # Add ignored count if any
+            if ignored_count > 0:
+                relevant_parts.append(f"{ignored_count} ignored (maintenance/scheduled activities)")
+
+            # Combine parts
+            if relevant_parts:
+                if len(relevant_parts) == 1:
+                    summary_parts.append(f"among them I find {relevant_parts[0]}")
+                elif len(relevant_parts) == 2:
+                    summary_parts.append(f"among them I find {relevant_parts[0]} and {relevant_parts[1]}")
+                else:
+                    # More than 2 categories
+                    last_part = relevant_parts.pop()
+                    summary_parts.append(f"among them I find {', '.join(relevant_parts)}, and {last_part}")
+
+            return ", ".join(summary_parts) + "."
+
+        except Exception as e:
+            logger.error(f"Error parsing results summary: {e}")
+            return "Unable to generate summary due to parsing error."
 # Example usage and context file creation utility
 def create_sample_context_file(filename: str = "context_rules.csv"):
     """

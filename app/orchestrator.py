@@ -211,10 +211,10 @@ class Orchestrator:
             # }
 
             report_files = [
-                "comprehensive_analysis\\trace_report_0367904c9335_20250724_115756.txt",
-                "comprehensive_analysis\\trace_report_7b55b82bdde1_20250724_115812.txt",
-                "comprehensive_analysis\\trace_report_25737a677a8e_20250724_115837.txt",
-                "comprehensive_analysis\\trace_report_9a51c56b8a37_20250724_115854.txt"
+                "comprehensive_analysis\\trace_report_0367904c9335_20250724_120315.txt",
+                "comprehensive_analysis\\trace_report_7b55b82bdde1_20250724_120331.txt",
+                "comprehensive_analysis\\trace_report_25737a677a8e_20250724_120345.txt",
+                "comprehensive_analysis\\trace_report_9a51c56b8a37_20250724_120401.txt"
             ]
             master_report = "comprehensive_analysis\\master_summary_20250724_115854.txt"
 
@@ -225,19 +225,27 @@ class Orchestrator:
             await asyncio.sleep(0)
 
         # STEP 6: Run verify agents and write results to file
-        logger.info("STEP 6: Running verify agents with parameters and original text…")
+        logger.info("STEP 6: Running verify agents with parameters and original text…")
+
         # 1) Run the relevance analysis
         # results = self.verify_agent.analyze_batch_relevance(
         #     original_text=text,
         #     parameters=params,
         #     trace_files=report_files
         # )
+        #
         # # 2) Export to disk, returning only the filename/path
         # output_file = self.verify_agent.export_results_to_file(results)
-        # yield "Verification Results", {"file": output_file}
-        yield "Verification Results", {
-            "file": "app\\verification_reports\\relevance_analysis_20250724_121257.json"
-        }
+        #
+        # # 3) Generate the complete summary string and yield it
+        # summary_string = self.verify_agent.get_verification_summary_string(output_file)
+        # yield "Verification Results", summary_string
+
+        output_file = "app\\verification_reports\\relevance_analysis_20250724_121257.json"
+
+        # 3) Generate the complete summary string and yield it
+        summary_string = self.verify_agent.get_verification_summary_string(output_file)
+        yield "Verification Results", summary_string
         await asyncio.sleep(0)
 
 

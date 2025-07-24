@@ -1,0 +1,11 @@
+-- Create database (run as superuser)
+CREATE DATABASE agent_loggy;
+
+-- Connect to the database
+\c agent_loggy;
+
+-- Enable pgvector extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Create schema
+CREATE SCHEMA IF NOT EXISTS agent_loggy;

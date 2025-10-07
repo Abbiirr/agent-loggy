@@ -1,0 +1,47 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fastapi
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:8000:8000"
+    environment:
+      # adjust to your app's env needs:
+      - DATABASE_URL=postgresql+psycopg://agent:agent_pass@postgres:5432/agent_loggy
+    depends_on:
+      postgres:
+        condition: service_healthy
+    develop:               # enables auto rebuild/sync with: docker compose up --watch
+      watch:
+        - action: rebuild
+          path: .
+
+  postgres:
+    image: postgres:latest
+    container_name: agent_loggy_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=agent
+      - POSTGRES_PASSWORD=agent_pass
+      - POSTGRES_DB=agent_loggy
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_loggy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - agentnet
+
+volumes:
+  db_data:
+
+networks:
+  agentnet:
+    driver: bridge

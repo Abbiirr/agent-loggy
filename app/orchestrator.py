@@ -59,16 +59,16 @@ class Orchestrator:
 
         # STEP 1: Parameter extraction
         logger.info("STEP 1: Parameter extraction…")
-        # params = self.param_agent.run(text)
-        # logger.info("Extracted parameters: %s", json.dumps(params, indent=2))
-        # yield "Extracted Parameters", {"parameters": params}
-        # await asyncio.sleep(0)
-        params = {
-            "domain": "transactions",
-            "query_keys": ["bkash"],
-            "time_frame": "2025-07-24"
-        }
+        params = self.param_agent.run(text)
+        logger.info("Extracted parameters: %s", json.dumps(params, indent=2))
         yield "Extracted Parameters", {"parameters": params}
+        await asyncio.sleep(0)
+        # params = {
+        #     "domain": "transactions",
+        #     "query_keys": ["bkash"],
+        #     "time_frame": "2025-07-24"
+        # }
+        # yield "Extracted Parameters", {"parameters": params}
         await asyncio.sleep(0)
         # STEP 2: File search
         log_files = []
@@ -181,9 +181,12 @@ class Orchestrator:
             }
             await asyncio.sleep(0)
 
-        # STEP 5: Verification summary
-        logger.info("STEP 5: Verification & file gen…")
-        if project in ("MMBL", "UCB"):  # membership test replaces '||' :contentReference[oaicite:9]{index=9}
+        # STEP 5: Verification summary
+        logger.info("STEP 5: Verification & file gen…")
+        report_files = []  # Initialize report_files
+        master_report = ""  # Initialize master_report
+
+        if project in ("MMBL", "UCB"):
             result = self.analyze_agent.analyze_and_create_comprehensive_files(
                 original_context=text,
                 search_results={"unique_trace_ids": unique_ids},
@@ -191,33 +194,22 @@ class Orchestrator:
                 parameters=params,
                 output_prefix="banking_analysis"
             )
+            report_files = result.get("comprehensive_files_created", [])
+            master_report = result.get("master_summary_file", "")
             yield "Compiled Summary", {
-                "created_files": result.get("comprehensive_files_created", []),
-                "master_summary_file": result.get("master_summary_file")
+                "created_files": report_files,
+                "master_summary_file": master_report
             }
             await asyncio.sleep(0)
 
-
         elif project in ("NCC", "ABBL"):
-            # result = self.analyze_agent.analyze_log_files(
-            #     log_file_paths=log_files,
-            #     dispute_text=text,
-            #     search_params=params
-            # )
-            # # 3) Single final yield with all report paths
-            # yield "Compiled Summary", {
-            #     "created_files": result["individual_reports"],
-            #     "master_summary_file": result["master_report"]
-            # }
-
-            report_files = [
-                "comprehensive_analysis\\trace_report_0367904c9335_20250724_120315.txt",
-                "comprehensive_analysis\\trace_report_7b55b82bdde1_20250724_120331.txt",
-                "comprehensive_analysis\\trace_report_25737a677a8e_20250724_120345.txt",
-                "comprehensive_analysis\\trace_report_9a51c56b8a37_20250724_120401.txt"
-            ]
-            master_report = "comprehensive_analysis\\master_summary_20250724_115854.txt"
-
+            result = self.analyze_agent.analyze_log_files(
+                log_file_paths=log_files,
+                dispute_text=text,
+                search_params=params
+            )
+            report_files = result["individual_reports"]
+            master_report = result["master_report"]
             yield "Compiled Summary", {
                 "created_files": report_files,
                 "master_summary_file": master_report
@@ -228,24 +220,24 @@ class Orchestrator:
         logger.info("STEP 6: Running verify agents with parameters and original text…")
 
         # 1) Run the relevance analysis
-        # results = self.verify_agent.analyze_batch_relevance(
-        #     original_text=text,
-        #     parameters=params,
-        #     trace_files=report_files
-        # )
-        #
-        # # 2) Export to disk, returning only the filename/path
-        # output_file = self.verify_agent.export_results_to_file(results)
-        #
-        # # 3) Generate the complete summary string and yield it
-        # summary_string = self.verify_agent.get_verification_summary_string(output_file)
-        # yield "Verification Results", summary_string
+        results = self.verify_agent.analyze_batch_relevance(
+            original_text=text,
+            parameters=params,
+            trace_files=report_files
+        )
 
-        output_file = "app\\verification_reports\\relevance_analysis_20250724_121257.json"
+        # 2) Export to disk, returning only the filename/path
+        output_file = self.verify_agent.export_results_to_file(results)
 
         # 3) Generate the complete summary string and yield it
         summary_string = self.verify_agent.get_verification_summary_string(output_file)
         yield "Verification Results", summary_string
+
+        # output_file = "app\\verification_reports\\relevance_analysis_20250724_121257.json"
+
+        # 3) Generate the complete summary string and yield it
+        # summary_string = self.verify_agent.get_verification_summary_string(output_file)
+        # yield "Verification Results", summary_string
         await asyncio.sleep(0)
 
 

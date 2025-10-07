@@ -1,162 +1,356 @@
+# parameters_agent.py
+
+from __future__ import annotations
+
 import json
 import logging
 import regex as re
-import sys
+import time
+from typing import Dict, List, Optional
 
 import httpx
-from dateutil import parser as date_parser
+from datetime import datetime, date, timedelta
+from dateutil.relativedelta import relativedelta
 from ollama import Client
 
 logger = logging.getLogger(__name__)
 
 # ---- CONFIGURATION ----
-OLLAMA_HOST = "http://localhost:11434"
-DOMAIN_KEYWORDS = ["NPSB", "BEFTN", "FUNDFTRANSFER", "PAYMENT", "BKASH", "QR"]
-allowed_query_keys = [
+OLLAMA_HOST = "http://10.112.30.10:11434"
+
+# Domain hints that may appear in user text (uppercased comparisons)
+DOMAIN_KEYWORDS = ["NPSB", "BEFTN", "FUNDFTRANSFER", "PAYMENT", "BKASH", "QR", "MFS", "NAGAD", "UPAY", "ROCKET"]
+
+# Canonical allow/exclude lists (duplicates removed; "amount" is ALLOWED, not excluded)
+allowed_query_keys: List[str] = [
     "merchant", "amount", "transaction_id", "customer_id",
     "mfs", "bkash", "nagad", "upay", "rocket", "qr", "npsb", "beftn",
     "fund_transfer", "payment", "balance", "fee", "status",
     "product_id", "category", "rating", "review_text", "user_id"
 ]
 
-excluded_query_keys = [
+excluded_query_keys: List[str] = [
     "password", "token", "secret", "api_key", "private_key",
-    "internal_id", "system_log", "debug_info", "date", "amount"
+    "internal_id", "system_log", "debug_info", "date"  # keep "date" excluded as a field selector
 ]
 
-allowed_domains = [
+allowed_domains: List[str] = [
     "transactions", "customers", "users", "products", "reviews",
     "payments", "merchants", "accounts", "orders", "analytics"
 ]
 
-excluded_domains = [
+excluded_domains: List[str] = [
     "system", "logs", "admin", "security", "internal",
     "debug", "config", "authentication"
 ]
 
+# Month name map
+_MONTHS = {
+    'jan':1, 'january':1, 'feb':2, 'february':2, 'mar':3, 'march':3, 'apr':4, 'april':4,
+    'may':5, 'jun':6, 'june':6, 'jul':7, 'july':7, 'aug':8, 'august':8,
+    'sep':9, 'sept':9, 'september':9, 'oct':10, 'october':10, 'nov':11, 'november':11, 'dec':12, 'december':12
+}
 
-# ---- HEALTH CHECK ----
-def is_ollama_running(host: str = OLLAMA_HOST) -> bool:
+# Precompiled date patterns
+_RE_ISO_YMD   = re.compile(r'\b(\d{4})[./-](\d{1,2})[./-](\d{1,2})\b')
+_RE_D_MONTH_Y = re.compile(r'\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})\b', re.I)
+_RE_MONTH_D_Y = re.compile(r'\b([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,\s*(\d{4})\b', re.I)
+_RE_DMY       = re.compile(r'\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b')  # interpret day-first
+_RE_YM        = re.compile(r'\b(\d{4})[./-](\d{1,2})\b')
+
+# JSON extraction patterns (supports fenced blocks and balanced braces via recursion)
+_RE_FENCED = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
+_RE_OBJ    = re.compile(r"(\{(?:[^{}]|(?1))*\})", re.DOTALL)  # requires 'regex' module
+
+
+# ---- HEALTH CHECK WITH RETRY ----
+def is_ollama_running(host: str = OLLAMA_HOST, max_retries: int = 3) -> bool:
     """Return True if Ollama daemon responds on the root endpoint."""
-    try:
-        resp = httpx.get(f"{host}/", timeout=2.0)
-        return resp.status_code == 200 and "Ollama is running" in resp.text
-    except Exception:
-        return False
+    for attempt in range(max_retries):
+        try:
+            resp = httpx.get(f"{host}/", timeout=10.0)
+            if resp.status_code == 200:
+                return True
+        except Exception as e:
+            logger.debug(f"Ollama health check attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(0.5 * (2 ** attempt))  # Exponential backoff
+    return False
+
+
+class OllamaUnavailableError(Exception):
+    """Raised when Ollama service is unavailable"""
+    pass
+
 
 class ParametersAgent:
-    """Extracts `time_frame`, `domain`, and `query_keys` from text."""
+    """
+    Extracts {time_frame, domain, query_keys} from free text using an LLM
+    and then applies strict validation + deterministic date normalization.
+    """
+
     def __init__(self, client: Client, model: str):
         self.client = client
         self.model = model
         logger.info("ParametersAgent using model: %s", model)
 
-    def run(self, text: str) -> dict:
+    # ---------------------- Public API ----------------------
+
+    def run(self, text: str) -> Dict:
+        # Check Ollama availability but don't crash the app
         if not is_ollama_running():
-            logger.critical("Ollama server is not running. Start it with 'ollama serve'.")
-            sys.exit(1)
-
-        prompt = (
-            f"""You are a parameter extractor. Extract parameters and output ONLY valid JSON in this exact format:
-{{"time_frame": "YYYY-MM-DD or null", "domain": "domain_name", "query_keys": ["key1", "key2", "key3"]}}
-
-RULES:
-1. query_keys must be a flat array of strings - NO nested objects or arrays
-2. Each query_key should be a simple field name
-3. Domain should be the main data category
-4. If no time mentioned, set time_frame to null
-
-ALLOWED query_keys: {", ".join(allowed_query_keys)}
-EXCLUDED query_keys: {", ".join(excluded_query_keys)}
-
-ALLOWED domains: {", ".join(allowed_domains)}
-EXCLUDED domains: {", ".join(excluded_domains)}
-
-EXAMPLES:
-User: "Show me merchant transactions over $500 last week"
-Output: {{"time_frame": "2025-07-14", "domain": "transactions", "query_keys": ["merchant"]}}
-
-User: "Find customers who bought electronics in January"
-Output: {{"time_frame": "2025-01-01", "domain": "customers", "query_keys": ["customer_id", "category"]}}
-
-User: "List all product reviews with ratings"
-Output: {{"time_frame": null, "domain": "reviews", "query_keys": ["product_id", "rating", "review_text"]}}
-
-User: "Get bKash payments from this month"
-Output: {{"time_frame": "2025-07-01", "domain": "payments", "query_keys": ["bkash", "mfs", "processpayment"]}}
-
-User text: {text}
-
-Output only the JSON, no explanations:"""
-        )
-        resp = self.client.chat(
-            model=self.model,
-            messages=[{"role": "system", "content": prompt}],
-        )
-        raw = resp["message"]["content"]
-        logger.debug("Raw parameters output: %s", raw)
-
-        # 1. Pull out the JSON blob, wherever it is
+            logger.error("Ollama server is not available. Using fallback extraction.")
+            # Return fallback instead of crashing
+            return self._fallback(text)
 
         try:
-            json_blob = self._extract_json_block(raw)
-            params = json.loads(json_blob)
-        except json.JSONDecodeError:
-            logger.error("JSON parse error, falling back to regex extraction.")
-            params = self._fallback(text)
+            system_prompt = self._build_system_prompt()
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text.strip()},
+            ]
 
-        # 2. Normalize the date field
-        if "time_frame" in params and isinstance(params["time_frame"], str):
-            params["time_frame"] = self._normalize_date(params["time_frame"])
+            # Add timeout to prevent hanging
+            resp = self.client.chat(
+                model=self.model,
+                messages=messages,
+                options={"timeout": 30}  # 30 second timeout
+            )
+            raw = resp["message"]["content"]
+            logger.debug("Raw parameters output: %s", raw)
 
-        # 3. Enforce DOMAIN_KEYWORDS as before
-        text_upper = text.upper()
-        forced = [kw for kw in DOMAIN_KEYWORDS if kw in text_upper]
-        if forced:
-            existing = [d.strip() for d in params.get("domain", "").split(",") if d.strip()]
-            params["domain"] = ", ".join(dict.fromkeys(forced + existing))
+            # 1) Extract JSON
+            try:
+                json_blob = self._extract_json_block(raw)
+                params = json.loads(json_blob)
+            except Exception as e:
+                logger.error("LLM JSON parse error (%s). Falling back to regex-only extraction.", e)
+                params = self._fallback(text)
 
-        return params
+        except Exception as e:
+            logger.error(f"Ollama API call failed: {e}. Using fallback extraction.")
+            return self._fallback(text)
+
+        # 2) Normalize time_frame → ISO YYYY-MM-DD or None
+        tf = params.get("time_frame", None)
+        if isinstance(tf, str):
+            normalized = self._normalize_date(tf)
+            params["time_frame"] = normalized if normalized is not None else None
+        elif tf is None:
+            params["time_frame"] = None
+        else:
+            params["time_frame"] = None
+
+        # 3) Domain: enforce allow-list / infer if missing or invalid
+        domain = (params.get("domain") or "").strip().lower()
+        if not domain or domain not in allowed_domains or domain in excluded_domains:
+            inferred = self._infer_domain(text)
+            params["domain"] = inferred
+        else:
+            params["domain"] = domain
+
+        # 4) query_keys: normalize, dedupe, enforce allow/exclude
+        qk = params.get("query_keys", [])
+        if not isinstance(qk, list):
+            qk = []
+        params["query_keys"] = self._sanitize_query_keys(qk, text)
+
+        return {
+            "time_frame": params["time_frame"],
+            "domain": params["domain"],
+            "query_keys": params["query_keys"],
+        }
+
+    # ---------------------- Prompt ----------------------
+
+    def _build_system_prompt(self) -> str:
+        return (
+            "You are a strict parameter extractor.\n"
+            "Return ONLY valid JSON with this exact schema:\n"
+            '{"time_frame": "YYYY-MM-DD or null", "domain": "domain_name", "query_keys": ["key1","key2","key3"]}\n\n'
+            "RULES:\n"
+            "1) query_keys is a flat array of simple field names (lowercase snake_case). No objects/arrays.\n"
+            "2) domain is the main data category from this allow-list only.\n"
+            "3) If no time mentioned → time_frame = null.\n"
+            "4) time_frame MUST be a single ISO date (YYYY-MM-DD) or null.\n"
+            '5) If user gives a month or a relative period ("July 2025", "last week", "this month"), convert to one concrete start date (YYYY-MM-DD). For a month use day 1; for ranges use the start date.\n'
+            "6) If you cannot confidently produce a single date, set time_frame to null.\n"
+            "7) Use ONLY the allowed query keys; never output excluded ones.\n\n"
+            f"ALLOWED query_keys: {', '.join(allowed_query_keys)}\n"
+            f"EXCLUDED query_keys: {', '.join(excluded_query_keys)}\n\n"
+            f"ALLOWED domains: {', '.join(allowed_domains)}\n"
+            f"EXCLUDED domains: {', '.join(excluded_domains)}\n\n"
+            "EXAMPLES:\n"
+            'User: "Show me merchant transactions over 500 last week"\n'
+            'Output: {"time_frame": "2025-07-14", "domain": "transactions", "query_keys": ["merchant","amount"]}\n\n'
+            'User: "Find customers who bought electronics in January 2025"\n'
+            'Output: {"time_frame": "2025-01-01", "domain": "customers", "query_keys": ["category"]}\n\n'
+            'User: "List all product reviews with ratings"\n'
+            'Output: {"time_frame": null, "domain": "reviews", "query_keys": ["product_id","rating","review_text"]}\n\n'
+            'User: "Get bKash payments from this month"\n'
+            'Output: {"time_frame": "2025-10-01", "domain": "payments", "query_keys": ["bkash","mfs"]}\n\n'
+            "Return ONLY the JSON. No extra text."
+        )
+
+    # ---------------------- Helpers ----------------------
 
     def _extract_json_block(self, raw: str) -> str:
-        """
-        Finds the first JSON object in the raw string, whether it's
-        inside ```json``` fences or between the first { … }.
-        """
-        # 1) Try finding a fenced JSON block
-        fenced = re.search(r"```json\s*(\{.*?\})\s*```", raw, flags=re.DOTALL)
-        if fenced:
-            return fenced.group(1)
-
-        # 2) Otherwise, grab the first {...}
-        simple = re.search(r"(\{(?:[^{}]|(?1))*\})", raw, flags=re.DOTALL)
-        if simple:
-            return simple.group(1)
-
-        # 3) Give up — return whole text (likely to fail JSON parse)
+        """Find the first JSON object, fenced or plain; prefer fenced ```json blocks."""
+        m = _RE_FENCED.search(raw)
+        if m:
+            return m.group(1)
+        m = _RE_OBJ.search(raw)
+        if m:
+            return m.group(1)
         return raw.strip()
 
-    def _normalize_date(self, date_str: str) -> str:
-        """
-        Turn any human‑readable date into YYYY‑MM‑DD.
-        If parsing fails, returns the original string.
-        """
-        try:
-            dt = date_parser.parse(date_str, dayfirst=True, fuzzy=True)
-            return dt.strftime("%Y-%m-%d")
-        except (ValueError, TypeError) as e:
-            logger.warning("Could not parse date '%s': %s", date_str, e)
-            return date_str
+    def _month_index(self, mstr: str) -> Optional[int]:
+        return _MONTHS.get(mstr.strip().lower())
 
-    def _fallback(self, text: str) -> dict:
-        # Simple regex-based fallback extraction, as before
-        result = {"time_frame": "", "domain": "", "query_keys": []}
-        date_match = re.search(r"\b\d{1,2}\.\d{1,2}\.\d{4}\b", text)
-        if date_match:
-            result["time_frame"] = date_match.group(0)
-        found = [kw for kw in DOMAIN_KEYWORDS if kw in text.upper()]
-        if found:
-            result["domain"] = ", ".join(found)
-        accounts = re.findall(r"\b\d{10,}\b", text)
-        result["query_keys"] = accounts
-        return result
+    def _safe_iso(self, y: int, m: int, d: int) -> Optional[str]:
+        try:
+            return datetime(y, m, d).strftime('%Y-%m-%d')
+        except ValueError:
+            return None
+
+    def _start_of_week(self, d: date) -> date:
+        # Monday as start of week
+        return d - timedelta(days=d.weekday())
+
+    def _normalize_date(self, date_str: str) -> Optional[str]:
+        """
+        Deterministic conversion of various human forms to YYYY-MM-DD.
+        Returns None if not confidently parseable as a single calendar day.
+        """
+        s = (date_str or "").strip()
+
+        # 1) Strict ISO (YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD)
+        m = _RE_ISO_YMD.search(s)
+        if m:
+            y, mo, da = map(int, m.groups())
+            out = self._safe_iso(y, mo, da)
+            if out: return out
+
+        # 2) "DD Month YYYY"
+        m = _RE_D_MONTH_Y.search(s)
+        if m:
+            d, mon, y = m.groups()
+            mi = self._month_index(mon)
+            if mi:
+                out = self._safe_iso(int(y), mi, int(d))
+                if out: return out
+
+        # 3) "Month DD, YYYY"
+        m = _RE_MONTH_D_Y.search(s)
+        if m:
+            mon, d, y = m.groups()
+            mi = self._month_index(mon)
+            if mi:
+                out = self._safe_iso(int(y), mi, int(d))
+                if out: return out
+
+        # 4) Numeric D-M-Y (explicit day-first policy)
+        m = _RE_DMY.search(s)
+        if m:
+            d, mo, y = m.groups()
+            y = int(y)
+            if y < 100:
+                y += 2000 if y < 50 else 1900
+            out = self._safe_iso(y, int(mo), int(d))
+            if out: return out
+
+        # 5) Year-Month -> first of the month
+        m = _RE_YM.search(s)
+        if m:
+            y, mo = map(int, m.groups())
+            out = self._safe_iso(y, mo, 1)
+            if out: return out
+
+        # 6) Relative phrases → choose a concrete start date
+        low = s.lower()
+        today = date.today()
+
+        if 'today' in low:
+            return today.strftime('%Y-%m-%d')
+        if 'yesterday' in low:
+            return (today - timedelta(days=1)).strftime('%Y-%m-%d')
+        if 'tomorrow' in low:
+            return (today + timedelta(days=1)).strftime('%Y-%m-%d')
+
+        if 'this week' in low:
+            return self._start_of_week(today).strftime('%Y-%m-%d')
+        if 'last week' in low:
+            return self._start_of_week(today - timedelta(days=7)).strftime('%Y-%m-%d')
+        if 'next week' in low:
+            return self._start_of_week(today + timedelta(days=7)).strftime('%Y-%m-%d')
+
+        if 'this month' in low:
+            return today.replace(day=1).strftime('%Y-%m-%d')
+        if 'last month' in low:
+            first = today.replace(day=1) - timedelta(days=1)
+            return first.replace(day=1).strftime('%Y-%m-%d')
+        if 'next month' in low:
+            first_next = (today.replace(day=1) + relativedelta(months=1))
+            return first_next.strftime('%Y-%m-%d')
+
+        # 7) Not confident
+        return None
+
+    def _infer_domain(self, text: str) -> str:
+        """
+        If LLM domain is missing/invalid, infer from text.
+        Payment/MFS cues -> 'payments', otherwise default 'transactions'.
+        """
+        t = text.upper()
+        if any(k in t for k in ["BKASH", "NAGAD", "UPAY", "ROCKET", "MFS", "QR", "PAYMENT", "BEFTN", "NPSB", "FUNDFTRANSFER", "FUND TRANSFER"]):
+            return "payments" if "payments" in allowed_domains else "transactions"
+        return "transactions"
+
+    def _sanitize_query_keys(self, keys: List[str], text: str) -> List[str]:
+        """
+        - Lowercase & snake_case
+        - Drop excluded
+        - Restrict to allow-list
+        - Auto-add obvious keys present in text (e.g., bkash, nagad, qr, mfs)
+        """
+        def norm(k: str) -> str:
+            k = (k or "").strip().lower()
+            k = k.replace("-", "_").replace(" ", "_")
+            return k
+
+        allowed_set = set(allowed_query_keys)
+        excluded_set = set(excluded_query_keys)
+
+        out: List[str] = []
+        for k in keys:
+            nk = norm(k)
+            if nk and nk not in excluded_set and nk in allowed_set:
+                if nk not in out:
+                    out.append(nk)
+
+        # Heuristic: scan text to add known provider/network keys
+        t = text.lower()
+        auto_candidates = ["bkash", "nagad", "upay", "rocket", "qr", "mfs", "npsb", "beftn", "fund_transfer", "payment", "merchant", "amount", "status"]
+        for cand in auto_candidates:
+            # handle "fund transfer" as well
+            if cand == "fund_transfer":
+                if "fund transfer" in t or "fundtransfer" in t:
+                    if cand not in out and cand in allowed_set:
+                        out.append(cand)
+                continue
+            if cand in t and cand in allowed_set and cand not in excluded_set and cand not in out:
+                out.append(cand)
+
+        return out
+
+    def _fallback(self, text: str) -> Dict:
+        """
+        Conservative extraction when the LLM output is unusable.
+        - No guessing complex dates
+        - Domain inferred heuristically
+        - query_keys from allow-list tokens found in text
+        """
+        tf = self._normalize_date(text)  # may be None
+        domain = self._infer_domain(text)
+        qk = self._sanitize_query_keys([], text)
+        return {"time_frame": tf, "domain": domain, "query_keys": qk}

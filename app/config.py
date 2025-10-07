@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     DATABASE_SCHEMA: str
     OLLAMA_HOST: str
     ANALYSIS_DIR : str
+    MODEL: str
 
     # ─── Tell Pydantic-Settings how to load .env ─────────────
     model_config = SettingsConfigDict(

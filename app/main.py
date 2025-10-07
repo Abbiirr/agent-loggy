@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from app.config import settings
 from alembic.config import Config
 from alembic import command
+from app.config import settings
 
 # Setup logging
 logging.basicConfig(
@@ -67,7 +68,7 @@ async def startup_event():
 
 # Create Ollama client and Orchestrator once
 client = Client(host=OLLAMA_HOST)
-orchestrator = Orchestrator(client, model="deepseek-r1:8b", log_base_dir="data")
+orchestrator = Orchestrator(client, model=settings.MODEL, log_base_dir="data")
 
 
 

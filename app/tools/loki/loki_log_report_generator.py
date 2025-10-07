@@ -9,7 +9,7 @@ import re
 from typing import List, Dict, Any
 from xml.etree import ElementTree as ET
 from datetime import datetime
-
+from app.config import settings
 
 def parse_loki_json(json_files):
     """
@@ -219,7 +219,7 @@ if __name__ == '__main__':
             'primary_issue': 'processing_delay|network_issue',
             'recommendation': 'Investigate fund transfer processing logs and account balance checks.'
         },
-        analysis_model='deepseek-r1:8b',
+        analysis_model=settings.MODEL,
         output_path='comprehensive_report.txt'
     )
     print(f"Generated report: {report}")

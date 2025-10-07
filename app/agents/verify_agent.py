@@ -11,6 +11,7 @@ from datetime import datetime as dt
 from dataclasses import dataclass
 from enum import Enum
 import os
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -1121,10 +1122,10 @@ if __name__ == "__main__":
     create_sample_context_file("../app_settings/context_rules.csv")
 
     # Initialize the agent
-    client = Client(host='http://localhost:11434')
+    client = Client(host='http://10.112.30.10:11434')
     agent = RelevanceAnalyzerAgent(
         client,
-        model='deepseek-r1:8b',
+        model=settings.MODEL,
         context_file="../app_settings/context_rules.csv"
     )
 

@@ -168,6 +168,10 @@ def download_logs(
     """
     try:
         arg_list = build_curl_args(*args, **kwargs)
+        # Ensure output directory exists
+        output = kwargs.get('output')
+        if output:
+            os.makedirs(os.path.dirname(output), exist_ok=True)
         # Use build_curl_command to get the nicely formatted string
         curl_str = build_curl_command(*args, **kwargs)
         print("Running:")

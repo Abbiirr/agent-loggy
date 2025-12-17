@@ -135,7 +135,7 @@ def init_database():
                         f'SELECT version_num FROM "{schema_name}".alembic_version'
                     ))
                     current_version = result.scalar()
-                    if current_version == "add_projects":
+                    if current_version == "add_eval_tables":
                         logger.info("Database migrations up to date")
                     else:
                         logger.warning(f"Database at version '{current_version}', run: uv run alembic upgrade head")

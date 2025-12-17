@@ -28,3 +28,5 @@ app/verification_reports/
 comprehensive_analysis/
 
 .claude/
+
+app/evals/

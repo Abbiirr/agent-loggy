@@ -92,12 +92,18 @@ _MONTHS = {
 _RE_ISO_YMD   = re.compile(r'\b(\d{4})[./-](\d{1,2})[./-](\d{1,2})\b')
 _RE_D_MONTH_Y = re.compile(r'\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})\b', re.I)
 _RE_MONTH_D_Y = re.compile(r'\b([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?,\s*(\d{4})\b', re.I)
+_RE_MONTH_D_Y_NO_COMMA = re.compile(r'\b([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(\d{4})\b', re.I)  # "December 17 2025"
 _RE_DMY       = re.compile(r'\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b')  # interpret day-first
 _RE_YM        = re.compile(r'\b(\d{4})[./-](\d{1,2})\b')
 
 # JSON extraction patterns (supports fenced blocks and balanced braces via recursion)
 _RE_FENCED = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 _RE_OBJ    = re.compile(r"(\{(?:[^{}]|(?1))*\})", re.DOTALL)  # requires 'regex' module
+
+# Pattern to strip LLM thinking blocks (e.g., DeepSeek's <think>...</think>)
+_RE_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+# Pattern for unclosed think blocks (model output truncated or still generating)
+_RE_THINK_UNCLOSED = re.compile(r"<think>.*", re.DOTALL | re.IGNORECASE)
 
 
 # ---- HEALTH CHECK WITH RETRY ----
@@ -160,15 +166,19 @@ class ParametersAgent:
                 options={"timeout": timeout}
             )
             raw = resp["message"]["content"]
-            logger.debug("Raw parameters output: %s", raw)
+            logger.debug("Raw LLM response (length=%d): %s", len(raw), raw)
 
             # 1) Extract JSON
             try:
                 json_blob = self._extract_json_block(raw)
+                logger.debug("Extracted JSON blob: %s", json_blob)
                 params = json.loads(json_blob)
+                logger.debug("Parsed params from LLM: %s", params)
             except Exception as e:
-                logger.error("LLM JSON parse error (%s). Falling back to regex-only extraction.", e)
+                logger.error("LLM JSON parse error (%s). Raw response was: %s", e, raw[:500] if raw else "<empty>")
+                logger.info("Falling back to regex-only extraction.")
                 params = self._fallback(text)
+                logger.debug("Fallback params: %s", params)
 
         except Exception as e:
             logger.error(f"Ollama API call failed: {e}. Using fallback extraction.")
@@ -268,13 +278,19 @@ class ParametersAgent:
 
     def _extract_json_block(self, raw: str) -> str:
         """Find the first JSON object, fenced or plain; prefer fenced ```json blocks."""
-        m = _RE_FENCED.search(raw)
+        # Strip LLM thinking blocks first (e.g., <think>...</think> from DeepSeek)
+        cleaned = _RE_THINK_BLOCK.sub('', raw).strip()
+        # Also handle unclosed think blocks (truncated output)
+        cleaned = _RE_THINK_UNCLOSED.sub('', cleaned).strip()
+        logger.debug("After stripping think blocks (length=%d): %s", len(cleaned), cleaned[:200] if cleaned else "<empty>")
+
+        m = _RE_FENCED.search(cleaned)
         if m:
             return m.group(1)
-        m = _RE_OBJ.search(raw)
+        m = _RE_OBJ.search(cleaned)
         if m:
             return m.group(1)
-        return raw.strip()
+        return cleaned.strip()
 
     def _month_index(self, mstr: str) -> Optional[int]:
         return _MONTHS.get(mstr.strip().lower())
@@ -314,6 +330,15 @@ class ParametersAgent:
 
         # 3) "Month DD, YYYY"
         m = _RE_MONTH_D_Y.search(s)
+        if m:
+            mon, d, y = m.groups()
+            mi = self._month_index(mon)
+            if mi:
+                out = self._safe_iso(int(y), mi, int(d))
+                if out: return out
+
+        # 3b) "Month DD YYYY" (no comma) - e.g., "december 17 2025"
+        m = _RE_MONTH_D_Y_NO_COMMA.search(s)
         if m:
             mon, d, y = m.groups()
             mi = self._month_index(mon)
@@ -425,7 +450,11 @@ class ParametersAgent:
         - Domain inferred heuristically
         - query_keys from allow-list tokens found in text
         """
+        logger.debug("_fallback called with text: %s", text[:200] if text else "<empty>")
         tf = self._normalize_date(text)  # may be None
+        logger.debug("_fallback: normalized date from text = %s", tf)
         domain = self._infer_domain(text)
+        logger.debug("_fallback: inferred domain = %s", domain)
         qk = self._sanitize_query_keys([], text)
+        logger.debug("_fallback: sanitized query_keys = %s", qk)
         return {"time_frame": tf, "domain": domain, "query_keys": qk}

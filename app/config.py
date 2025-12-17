@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     ANALYSIS_DIR : str
     MODEL: str
 
+    # ─── Feature flags for gradual DB migration ──────────────
+    USE_DB_PROMPTS: bool = False
+    USE_DB_SETTINGS: bool = False
+    USE_DB_PROJECTS: bool = False
+
     # ─── Tell Pydantic-Settings how to load .env ─────────────
     model_config = SettingsConfigDict(
         env_file=".env",

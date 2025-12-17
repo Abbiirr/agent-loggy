@@ -13,36 +13,73 @@ from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 from ollama import Client
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
-# ---- CONFIGURATION ----
-OLLAMA_HOST = "http://10.112.30.10:11434"
 
-# Domain hints that may appear in user text (uppercased comparisons)
-DOMAIN_KEYWORDS = ["NPSB", "BEFTN", "FUNDFTRANSFER", "PAYMENT", "BKASH", "QR", "MFS", "NAGAD", "UPAY", "ROCKET"]
+# ---- CONFIGURATION (with ConfigService support) ----
+def _get_config(category: str, key: str, default):
+    """Get config from DB if enabled, otherwise return default."""
+    if settings.USE_DB_SETTINGS:
+        try:
+            from app.services.config_service import get_setting
+            return get_setting(category, key, default)
+        except Exception as e:
+            logger.warning(f"Failed to get config {category}.{key}: {e}")
+    return default
 
-# Canonical allow/exclude lists (duplicates removed; "amount" is ALLOWED, not excluded)
-allowed_query_keys: List[str] = [
+
+# Default values (used when DB settings disabled or unavailable)
+_DEFAULT_OLLAMA_HOST = "http://10.112.30.10:11434"
+_DEFAULT_DOMAIN_KEYWORDS = ["NPSB", "BEFTN", "FUNDFTRANSFER", "PAYMENT", "BKASH", "QR", "MFS", "NAGAD", "UPAY", "ROCKET"]
+_DEFAULT_ALLOWED_QUERY_KEYS = [
     "merchant", "amount", "transaction_id", "customer_id",
     "mfs", "bkash", "nagad", "upay", "rocket", "qr", "npsb", "beftn",
     "fund_transfer", "payment", "balance", "fee", "status",
     "product_id", "category", "rating", "review_text", "user_id"
 ]
-
-excluded_query_keys: List[str] = [
+_DEFAULT_EXCLUDED_QUERY_KEYS = [
     "password", "token", "secret", "api_key", "private_key",
-    "internal_id", "system_log", "debug_info", "date"  # keep "date" excluded as a field selector
+    "internal_id", "system_log", "debug_info", "date"
 ]
-
-allowed_domains: List[str] = [
+_DEFAULT_ALLOWED_DOMAINS = [
     "transactions", "customers", "users", "products", "reviews",
     "payments", "merchants", "accounts", "orders", "analytics"
 ]
-
-excluded_domains: List[str] = [
+_DEFAULT_EXCLUDED_DOMAINS = [
     "system", "logs", "admin", "security", "internal",
     "debug", "config", "authentication"
 ]
+
+
+def get_ollama_host() -> str:
+    return _get_config("ollama", "host", _DEFAULT_OLLAMA_HOST)
+
+
+def get_domain_keywords() -> List[str]:
+    return _get_config("agent", "domain_keywords", _DEFAULT_DOMAIN_KEYWORDS)
+
+
+def get_allowed_query_keys() -> List[str]:
+    return _get_config("agent", "allowed_query_keys", _DEFAULT_ALLOWED_QUERY_KEYS)
+
+
+def get_excluded_query_keys() -> List[str]:
+    return _get_config("agent", "excluded_query_keys", _DEFAULT_EXCLUDED_QUERY_KEYS)
+
+
+def get_allowed_domains() -> List[str]:
+    return _get_config("agent", "allowed_domains", _DEFAULT_ALLOWED_DOMAINS)
+
+
+# Keep module-level variables for backwards compatibility
+OLLAMA_HOST = _DEFAULT_OLLAMA_HOST
+DOMAIN_KEYWORDS = _DEFAULT_DOMAIN_KEYWORDS
+allowed_query_keys: List[str] = _DEFAULT_ALLOWED_QUERY_KEYS
+excluded_query_keys: List[str] = _DEFAULT_EXCLUDED_QUERY_KEYS
+allowed_domains: List[str] = _DEFAULT_ALLOWED_DOMAINS
+excluded_domains: List[str] = _DEFAULT_EXCLUDED_DOMAINS
 
 # Month name map
 _MONTHS = {
@@ -64,8 +101,13 @@ _RE_OBJ    = re.compile(r"(\{(?:[^{}]|(?1))*\})", re.DOTALL)  # requires 'regex'
 
 
 # ---- HEALTH CHECK WITH RETRY ----
-def is_ollama_running(host: str = OLLAMA_HOST, max_retries: int = 3) -> bool:
+def is_ollama_running(host: str = None, max_retries: int = None) -> bool:
     """Return True if Ollama daemon responds on the root endpoint."""
+    if host is None:
+        host = get_ollama_host()
+    if max_retries is None:
+        max_retries = _get_config("ollama", "max_retries", 3)
+
     for attempt in range(max_retries):
         try:
             resp = httpx.get(f"{host}/", timeout=10.0)
@@ -111,10 +153,11 @@ class ParametersAgent:
             ]
 
             # Add timeout to prevent hanging
+            timeout = _get_config("ollama", "timeout", 30)
             resp = self.client.chat(
                 model=self.model,
                 messages=messages,
-                options={"timeout": 30}  # 30 second timeout
+                options={"timeout": timeout}
             )
             raw = resp["message"]["content"]
             logger.debug("Raw parameters output: %s", raw)
@@ -143,7 +186,8 @@ class ParametersAgent:
 
         # 3) Domain: enforce allow-list / infer if missing or invalid
         domain = (params.get("domain") or "").strip().lower()
-        if not domain or domain not in allowed_domains or domain in excluded_domains:
+        current_allowed_domains = get_allowed_domains()
+        if not domain or domain not in current_allowed_domains or domain in excluded_domains:
             inferred = self._infer_domain(text)
             params["domain"] = inferred
         else:
@@ -164,6 +208,34 @@ class ParametersAgent:
     # ---------------------- Prompt ----------------------
 
     def _build_system_prompt(self) -> str:
+        """Build the system prompt, optionally from database if feature flag enabled."""
+        # Get current config values
+        current_allowed_keys = get_allowed_query_keys()
+        current_excluded_keys = get_excluded_query_keys()
+        current_allowed_domains = get_allowed_domains()
+
+        # Try to get prompt from database if feature flag is enabled
+        if settings.USE_DB_PROMPTS:
+            try:
+                from app.services.prompt_service import get_prompt_service
+                prompt_service = get_prompt_service()
+                db_prompt = prompt_service.render_prompt(
+                    "parameter_extraction_system",
+                    {
+                        "allowed_query_keys": ', '.join(current_allowed_keys),
+                        "excluded_query_keys": ', '.join(current_excluded_keys),
+                        "allowed_domains": ', '.join(current_allowed_domains),
+                        "excluded_domains": ', '.join(excluded_domains),
+                    }
+                )
+                if db_prompt:
+                    logger.debug("Using database prompt for parameter_extraction_system")
+                    return db_prompt
+                logger.warning("Database prompt not found, falling back to hardcoded prompt")
+            except Exception as e:
+                logger.warning(f"Failed to get prompt from database: {e}, using hardcoded prompt")
+
+        # Fallback to hardcoded prompt
         return (
             "You are a strict parameter extractor.\n"
             "Return ONLY valid JSON with this exact schema:\n"
@@ -176,9 +248,9 @@ class ParametersAgent:
             '5) If user gives a month or a relative period ("July 2025", "last week", "this month"), convert to one concrete start date (YYYY-MM-DD). For a month use day 1; for ranges use the start date.\n'
             "6) If you cannot confidently produce a single date, set time_frame to null.\n"
             "7) Use ONLY the allowed query keys; never output excluded ones.\n\n"
-            f"ALLOWED query_keys: {', '.join(allowed_query_keys)}\n"
-            f"EXCLUDED query_keys: {', '.join(excluded_query_keys)}\n\n"
-            f"ALLOWED domains: {', '.join(allowed_domains)}\n"
+            f"ALLOWED query_keys: {', '.join(current_allowed_keys)}\n"
+            f"EXCLUDED query_keys: {', '.join(current_excluded_keys)}\n\n"
+            f"ALLOWED domains: {', '.join(current_allowed_domains)}\n"
             f"EXCLUDED domains: {', '.join(excluded_domains)}\n\n"
             "EXAMPLES:\n"
             'User: "Show me merchant transactions over 500 last week"\n'
@@ -302,8 +374,11 @@ class ParametersAgent:
         Payment/MFS cues -> 'payments', otherwise default 'transactions'.
         """
         t = text.upper()
-        if any(k in t for k in ["BKASH", "NAGAD", "UPAY", "ROCKET", "MFS", "QR", "PAYMENT", "BEFTN", "NPSB", "FUNDFTRANSFER", "FUND TRANSFER"]):
-            return "payments" if "payments" in allowed_domains else "transactions"
+        domain_keywords = get_domain_keywords()
+        current_allowed_domains = get_allowed_domains()
+
+        if any(k in t for k in domain_keywords) or any(k in t for k in ["FUND TRANSFER"]):
+            return "payments" if "payments" in current_allowed_domains else "transactions"
         return "transactions"
 
     def _sanitize_query_keys(self, keys: List[str], text: str) -> List[str]:
@@ -318,8 +393,8 @@ class ParametersAgent:
             k = k.replace("-", "_").replace(" ", "_")
             return k
 
-        allowed_set = set(allowed_query_keys)
-        excluded_set = set(excluded_query_keys)
+        allowed_set = set(get_allowed_query_keys())
+        excluded_set = set(get_excluded_query_keys())
 
         out: List[str] = []
         for k in keys:

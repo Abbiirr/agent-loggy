@@ -26,3 +26,5 @@ app/loki_logs/
 app/verification_reports/
 
 comprehensive_analysis/
+
+.claude/

@@ -20,6 +20,8 @@ from dateutil import parser as date_parser
 from app.tools.loki.loki_log_report_generator import generate_comprehensive_report, parse_loki_json
 import csv
 
+from app.services.project_service import is_file_based, is_loki_based
+
 logger = logging.getLogger(__name__)
 
 NEGATE_RULES_PATH = "app_settings/negate_keys.csv"
@@ -75,7 +77,7 @@ class Orchestrator:
         unique_filename = ""
         search_date = ""
         end_date_str = ""
-        if project in ("MMBL", "UCB"):  # membership test replaces '||' :contentReference[oaicite:9]{index=9}
+        if is_file_based(project):
             logger.info("STEP 2: File search…")  # structured logging :contentReference[oaicite:10]{index=10}
             log_files = self.file_searcher.find_and_verify(params)
             files = [str(f) for f in log_files]
@@ -83,7 +85,7 @@ class Orchestrator:
             yield "Found relevant files", {"total_files": len(files)}
             await asyncio.sleep(0)  # yield control without blocking :contentReference[oaicite:11]{index=11}
 
-        elif project in ("NCC", "ABBL"):
+        elif is_loki_based(project):
             logger.info("STEP 2: Loki search…")
             query_keys = params.get("query_keys", [])
             search_date = params.get("time_frame")
@@ -107,7 +109,7 @@ class Orchestrator:
         # STEP 3: Trace ID collection
         logger.info("STEP 3: Trace ID collection…")
         unique_ids = []
-        if project in ("MMBL", "UCB"):  # membership test replaces '||' :contentReference[oaicite:9]{index=9}
+        if is_file_based(project):
             patterns = params.get("query_keys", [])
             unique_ids: List[str] = []
             for lf in log_files:
@@ -119,7 +121,7 @@ class Orchestrator:
             yield "Found trace id(s)", {"count": len(unique_ids)}
             await asyncio.sleep(0)
 
-        elif project in ("NCC", "ABBL"):
+        elif is_loki_based(project):
             unique_ids = extract_trace_ids(unique_filename)
             logger.info({"unique_ids": unique_ids})
             yield "Found trace id(s)", {"count": len(unique_ids)}
@@ -128,7 +130,7 @@ class Orchestrator:
         # STEP 4: Compilation summary
         logger.info("STEP 4: Compiling full logs…")
 
-        if project in ("MMBL", "UCB"):
+        if is_file_based(project):
 
             compiled: Dict[str, Dict[str, Any]] = {}
             summary_counts: Dict[str, int] = {}
@@ -162,7 +164,7 @@ class Orchestrator:
             }
             await asyncio.sleep(0)
 
-        elif project in ("NCC", "ABBL"):
+        elif is_loki_based(project):
             # — new branch using gather_logs_for_trace_ids —
             # If gather_logs_for_trace_ids is blocking I/O, you can offload it:
             log_files: List[str] = await asyncio.to_thread(
@@ -186,7 +188,7 @@ class Orchestrator:
         report_files = []  # Initialize report_files
         master_report = ""  # Initialize master_report
 
-        if project in ("MMBL", "UCB"):
+        if is_file_based(project):
             result = self.analyze_agent.analyze_and_create_comprehensive_files(
                 original_context=text,
                 search_results={"unique_trace_ids": unique_ids},
@@ -202,7 +204,7 @@ class Orchestrator:
             }
             await asyncio.sleep(0)
 
-        elif project in ("NCC", "ABBL"):
+        elif is_loki_based(project):
             result = self.analyze_agent.analyze_log_files(
                 log_file_paths=log_files,
                 dispute_text=text,

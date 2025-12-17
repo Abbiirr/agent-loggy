@@ -2,14 +2,34 @@
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from ollama import Client
 import re, json
 from datetime import datetime as dt
 
+from app.config import settings
 from .report_writer import ReportWriter
 
 logger = logging.getLogger(__name__)
+
+
+def _get_prompt_from_db(prompt_name: str, variables: Optional[Dict] = None) -> Optional[str]:
+    """
+    Helper to get prompt from database if feature flag is enabled.
+    Returns None if not available or feature disabled.
+    """
+    if not settings.USE_DB_PROMPTS:
+        return None
+    try:
+        from app.services.prompt_service import get_prompt_service
+        prompt_service = get_prompt_service()
+        result = prompt_service.render_prompt(prompt_name, variables)
+        if result:
+            logger.debug(f"Using database prompt for {prompt_name}")
+        return result
+    except Exception as e:
+        logger.warning(f"Failed to get prompt '{prompt_name}' from database: {e}")
+        return None
 
 
 class AnalyzeAgent:
@@ -285,13 +305,17 @@ class AnalyzeAgent:
     }}
     """
 
+        # Get system prompt from DB or use fallback
+        system_prompt = _get_prompt_from_db("trace_analysis_system") or \
+            "You are a senior banking systems analyst with expertise in transaction processing, log analysis, and dispute resolution. Analyze the provided log data thoroughly to understand exactly what happened during this transaction. Focus on technical details and evidence-based conclusions."
+
         try:
             response = self.client.chat(
                 model=self.model,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a senior banking systems analyst with expertise in transaction processing, log analysis, and dispute resolution. Analyze the provided log data thoroughly to understand exactly what happened during this transaction. Focus on technical details and evidence-based conclusions."
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
@@ -361,13 +385,17 @@ Analyze this trace and provide your expert assessment in JSON format:
 }}
 """
 
+        # Get system prompt from DB or use fallback
+        entries_system_prompt = _get_prompt_from_db("entries_analysis_system") or \
+            "You are a senior banking systems analyst. Provide thorough, evidence-based analysis."
+
         try:
             response = self.client.chat(
                 model=self.model,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a senior banking systems analyst. Provide thorough, evidence-based analysis."
+                        "content": entries_system_prompt
                     },
                     {
                         "role": "user",
@@ -415,11 +443,15 @@ JSON format:
 }}
 """
 
+        # Get system prompt from DB or use fallback
+        quality_system_prompt = _get_prompt_from_db("quality_assessment_system") or \
+            "Banking analyst. JSON only."
+
         try:
             response = self.client.chat(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "Banking analyst. JSON only."},
+                    {"role": "system", "content": quality_system_prompt},
                     {"role": "user", "content": prompt}
                 ]
             )

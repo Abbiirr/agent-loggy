@@ -1,0 +1,20 @@
+# app/db/__init__.py
+# Database module for agent-loggy
+
+from app.db.base import Base
+from app.db.session import (
+    engine,
+    SessionLocal,
+    get_db,
+    get_db_session,
+    get_session,
+)
+
+__all__ = [
+    "Base",
+    "engine",
+    "SessionLocal",
+    "get_db",
+    "get_db_session",
+    "get_session",
+]

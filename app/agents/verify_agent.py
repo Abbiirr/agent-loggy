@@ -16,6 +16,25 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _get_prompt_from_db(prompt_name: str, variables: Optional[Dict] = None) -> Optional[str]:
+    """
+    Helper to get prompt from database if feature flag is enabled.
+    Returns None if not available or feature disabled.
+    """
+    if not settings.USE_DB_PROMPTS:
+        return None
+    try:
+        from app.services.prompt_service import get_prompt_service
+        prompt_service = get_prompt_service()
+        result = prompt_service.render_prompt(prompt_name, variables)
+        if result:
+            logger.debug(f"Using database prompt for {prompt_name}")
+        return result
+    except Exception as e:
+        logger.warning(f"Failed to get prompt '{prompt_name}' from database: {e}")
+        return None
+
+
 class RelevanceLevel(Enum):
     """Enumeration for relevance levels"""
     HIGHLY_RELEVANT = "highly_relevant"
@@ -477,13 +496,17 @@ Provide analysis in JSON format:
 }}
 """
 
+        # Get system prompt from DB or use fallback
+        relevance_system_prompt = _get_prompt_from_db("relevance_analysis_system") or \
+            "You are an expert at analyzing system logs and determining relevance to user queries. Use provided context rules to make better relevance decisions. Be precise and thorough in your analysis."
+
         try:
             response = self.client.chat(
                 model=self.model,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert at analyzing system logs and determining relevance to user queries. Use provided context rules to make better relevance decisions. Be precise and thorough in your analysis."
+                        "content": relevance_system_prompt
                     },
                     {
                         "role": "user",

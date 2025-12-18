@@ -1,0 +1,44 @@
+site_name: agent-loggy
+site_description: Agent-first documentation for the agent-loggy repository.
+repo_url: https://github.com/Abbiirr/agent-loggy
+repo_name: Abbiirr/agent-loggy
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            heading_level: 2
+
+nav:
+  - Home: index.md
+  - AI Docs:
+      - Overview: ai/index.md
+      - Entrypoint: ai/ENTRYPOINT.md
+      - Architecture: ai/ARCHITECTURE.md
+      - Module index (generated): ai/MODULE_INDEX.md
+      - Config reference (generated): ai/CONFIG_REFERENCE.md
+      - Log catalog (generated): ai/LOG_CATALOG.md
+      - Repo tree (generated): ai/REPO_TREE.md
+      - Glossary: ai/GLOSSARY.md
+      - Quality bar: ai/QUALITY_BAR.md
+      - Decisions:
+          - ADR-0001: ai/DECISIONS/ADR-0001-docs-and-agent-pack.md
+  - Reference:
+      - Overview: reference/index.md

@@ -13,6 +13,29 @@
 - Automated creation of analysis and summary files
 - Confidence scoring and summary reporting
 
+## Docs
+
+This repo includes a MkDocs (Material) documentation site plus an “agent-first” documentation set under `docs/ai/`.
+
+```bash
+python -m pip install -r requirements-docs.txt
+python scripts/check_docs_fresh.py
+mkdocs serve
+```
+
+CI runs the same freshness check and fails if generated docs are stale.
+
+## AI Pack
+
+`docs/ai/AI_PACK.md` is a single-file “AI research pack” export intended for retrieval and offline use.
+
+Regenerate everything:
+
+```bash
+python scripts/build_agent_docs.py
+python scripts/export_ai_pack.py
+```
+
 ## Project Structure
 
 ```

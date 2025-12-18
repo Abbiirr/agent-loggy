@@ -1,4 +1,4 @@
-<!-- Generated on commit: 6d7866c6a41b75e100432ec50fbcd565aedb15bc -->
+<!-- Generated on commit: 587e82e13aa226d1827d16cbcffa9e92a2ed75d2 -->
 <!-- DO NOT EDIT: Run `python scripts/build_agent_docs.py` -->
 
 # Config reference (generated)
@@ -22,13 +22,6 @@ Best-effort discovery of config keys and environment variables.
 - Defaults: (not detected)
 - References:
   - `app/config.py:8` (BaseSettings field) — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/config.py#L8)
-
-## CFG-DE8B9FE600: `DEV_MODE`
-
-- Defaults:
-  - `'true'`
-- References:
-  - `app/main.py:42` (os.getenv) — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/main.py#L42)
 
 ## CFG-AAC8C77084: `MODEL`
 

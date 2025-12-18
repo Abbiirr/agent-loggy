@@ -1,4 +1,4 @@
-<!-- Generated on commit: 6d7866c6a41b75e100432ec50fbcd565aedb15bc -->
+<!-- Generated on commit: 587e82e13aa226d1827d16cbcffa9e92a2ed75d2 -->
 <!-- DO NOT EDIT: Run `python scripts/build_agent_docs.py` -->
 
 # Log catalog (generated)
@@ -9,7 +9,7 @@ Best-effort extraction of log message templates from Python logging calls.
 
 - Level: `debug`
 - Message: `Using database prompt for {...}`
-- Location: `app/agents/analyze_agent.py:32` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L32)
+- Location: `app/agents/analyze_agent.py:28` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L28)
 - Function: `_get_prompt_from_db`
 
 Meaning:
@@ -25,7 +25,7 @@ Next steps:
 
 - Level: `warning`
 - Message: `Failed to get prompt '{...}' from database: {...}`
-- Location: `app/agents/analyze_agent.py:35` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L35)
+- Location: `app/agents/analyze_agent.py:31` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L31)
 - Function: `_get_prompt_from_db`
 
 Meaning:
@@ -41,7 +41,7 @@ Next steps:
 
 - Level: `info`
 - Message: `VerifyAgent initialized with model: {...}, output directory: {...}`
-- Location: `app/agents/analyze_agent.py:54` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L54)
+- Location: `app/agents/analyze_agent.py:50` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L50)
 - Function: `AnalyzeAgent.__init__`
 
 Meaning:
@@ -57,7 +57,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Creating comprehensive analysis files for each trace...`
-- Location: `app/agents/analyze_agent.py:77` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L77)
+- Location: `app/agents/analyze_agent.py:73` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L73)
 - Function: `AnalyzeAgent.analyze_and_create_comprehensive_files`
 
 Meaning:
@@ -73,7 +73,7 @@ Next steps:
 
 - Level: `warning`
 - Message: `No trace data available for analysis`
-- Location: `app/agents/analyze_agent.py:81` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L81)
+- Location: `app/agents/analyze_agent.py:77` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L77)
 - Function: `AnalyzeAgent.analyze_and_create_comprehensive_files`
 
 Meaning:
@@ -89,7 +89,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Creating comprehensive file for trace: {...}`
-- Location: `app/agents/analyze_agent.py:92` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L92)
+- Location: `app/agents/analyze_agent.py:88` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L88)
 - Function: `AnalyzeAgent.analyze_and_create_comprehensive_files`
 
 Meaning:
@@ -105,7 +105,7 @@ Next steps:
 
 - Level: `info`
 - Message: `✓ Created comprehensive file: {...}`
-- Location: `app/agents/analyze_agent.py:108` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L108)
+- Location: `app/agents/analyze_agent.py:104` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L104)
 - Function: `AnalyzeAgent.analyze_and_create_comprehensive_files`
 
 Meaning:
@@ -121,7 +121,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Comprehensive analysis completed for {...} traces`
-- Location: `app/agents/analyze_agent.py:135` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L135)
+- Location: `app/agents/analyze_agent.py:131` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L131)
 - Function: `AnalyzeAgent.analyze_and_create_comprehensive_files`
 
 Meaning:
@@ -137,7 +137,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Master summary: {...}`
-- Location: `app/agents/analyze_agent.py:136` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L136)
+- Location: `app/agents/analyze_agent.py:132` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L132)
 - Function: `AnalyzeAgent.analyze_and_create_comprehensive_files`
 
 Meaning:
@@ -153,7 +153,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Starting analysis of {...} log files`
-- Location: `app/agents/analyze_agent.py:162` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L162)
+- Location: `app/agents/analyze_agent.py:158` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L158)
 - Function: `AnalyzeAgent.analyze_log_files`
 
 Meaning:
@@ -169,7 +169,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Parsed {...} entries from {...}`
-- Location: `app/agents/analyze_agent.py:170` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L170)
+- Location: `app/agents/analyze_agent.py:166` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L166)
 - Function: `AnalyzeAgent.analyze_log_files`
 
 Meaning:
@@ -185,7 +185,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error parsing {...}: {...}`
-- Location: `app/agents/analyze_agent.py:172` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L172)
+- Location: `app/agents/analyze_agent.py:168` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L168)
 - Function: `AnalyzeAgent.analyze_log_files`
 
 Meaning:
@@ -201,7 +201,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Found {...} unique traces with {...} total entries`
-- Location: `app/agents/analyze_agent.py:179` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L179)
+- Location: `app/agents/analyze_agent.py:175` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L175)
 - Function: `AnalyzeAgent.analyze_log_files`
 
 Meaning:
@@ -217,7 +217,7 @@ Next steps:
 
 - Level: `info`
 - Message: `✓ Created report for trace {...}: {...}`
-- Location: `app/agents/analyze_agent.py:199` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L199)
+- Location: `app/agents/analyze_agent.py:195` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L195)
 - Function: `AnalyzeAgent.analyze_log_files`
 
 Meaning:
@@ -233,7 +233,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error creating report for trace {...}: {...}`
-- Location: `app/agents/analyze_agent.py:202` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L202)
+- Location: `app/agents/analyze_agent.py:198` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L198)
 - Function: `AnalyzeAgent.analyze_log_files`
 
 Meaning:
@@ -249,7 +249,7 @@ Next steps:
 
 - Level: `info`
 - Message: `✓ Created master summary: {...}`
-- Location: `app/agents/analyze_agent.py:210` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L210)
+- Location: `app/agents/analyze_agent.py:206` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L206)
 - Function: `AnalyzeAgent.analyze_log_files`
 
 Meaning:
@@ -265,7 +265,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error creating master summary: {...}`
-- Location: `app/agents/analyze_agent.py:213` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L213)
+- Location: `app/agents/analyze_agent.py:209` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L209)
 - Function: `AnalyzeAgent.analyze_log_files`
 
 Meaning:
@@ -281,7 +281,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Analysis complete: {...} individual reports + 1 master report`
-- Location: `app/agents/analyze_agent.py:228` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L228)
+- Location: `app/agents/analyze_agent.py:224` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L224)
 - Function: `AnalyzeAgent.analyze_log_files`
 
 Meaning:
@@ -293,11 +293,11 @@ Causes:
 Next steps:
 - (fill in)
 
-## LOG-1816D324AF
+## LOG-200982701E
 
-- Level: `info`
-- Message: `Using cached trace analysis for {...}`
-- Location: `app/agents/analyze_agent.py:325` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L325)
+- Level: `error`
+- Message: `Error analyzing trace {...}: {...}`
+- Location: `app/agents/analyze_agent.py:340` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L340)
 - Function: `AnalyzeAgent._analyze_single_trace`
 
 Meaning:
@@ -313,56 +313,8 @@ Next steps:
 
 - Level: `error`
 - Message: `Error analyzing trace {...}: {...}`
-- Location: `app/agents/analyze_agent.py:349` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L349)
-- Function: `AnalyzeAgent._analyze_single_trace`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-BE941B9A4C
-
-- Level: `info`
-- Message: `Using cached entries analysis for {...}`
-- Location: `app/agents/analyze_agent.py:410` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L410)
+- Location: `app/agents/analyze_agent.py:417` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L417)
 - Function: `AnalyzeAgent._analyze_single_trace_from_entries`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-200982701E
-
-- Level: `error`
-- Message: `Error analyzing trace {...}: {...}`
-- Location: `app/agents/analyze_agent.py:431` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L431)
-- Function: `AnalyzeAgent._analyze_single_trace_from_entries`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-DDDF485711
-
-- Level: `info`
-- Message: `Using cached quality assessment`
-- Location: `app/agents/analyze_agent.py:473` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L473)
-- Function: `AnalyzeAgent._assess_overall_quality`
 
 Meaning:
 - (fill in)
@@ -377,7 +329,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error in overall quality assessment: {...}`
-- Location: `app/agents/analyze_agent.py:489` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L489)
+- Location: `app/agents/analyze_agent.py:463` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L463)
 - Function: `AnalyzeAgent._assess_overall_quality`
 
 Meaning:
@@ -393,7 +345,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error parsing log file {...}: {...}`
-- Location: `app/agents/analyze_agent.py:551` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L551)
+- Location: `app/agents/analyze_agent.py:525` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py#L525)
 - Function: `AnalyzeAgent._parse_log_file`
 
 Meaning:
@@ -985,7 +937,7 @@ Next steps:
 
 - Level: `warning`
 - Message: `Failed to get config {...}.{...}: {...}`
-- Location: `app/agents/parameter_agent.py:33` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L33)
+- Location: `app/agents/parameter_agent.py:29` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L29)
 - Function: `_get_config`
 
 Meaning:
@@ -1001,7 +953,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `Ollama health check attempt {...} failed: {...}`
-- Location: `app/agents/parameter_agent.py:127` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L127)
+- Location: `app/agents/parameter_agent.py:123` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L123)
 - Function: `is_ollama_running`
 
 Meaning:
@@ -1017,7 +969,7 @@ Next steps:
 
 - Level: `info`
 - Message: `ParametersAgent using model: %s`
-- Location: `app/agents/parameter_agent.py:147` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L147)
+- Location: `app/agents/parameter_agent.py:143` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L143)
 - Function: `ParametersAgent.__init__`
 
 Meaning:
@@ -1033,23 +985,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Ollama server is not available. Using fallback extraction.`
-- Location: `app/agents/parameter_agent.py:154` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L154)
-- Function: `ParametersAgent.run`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-38103A2C71
-
-- Level: `info`
-- Message: `Using cached parameter extraction response`
-- Location: `app/agents/parameter_agent.py:168` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L168)
+- Location: `app/agents/parameter_agent.py:150` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L150)
 - Function: `ParametersAgent.run`
 
 Meaning:
@@ -1065,7 +1001,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `Raw LLM response (length=%d): %s`
-- Location: `app/agents/parameter_agent.py:179` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L179)
+- Location: `app/agents/parameter_agent.py:169` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L169)
 - Function: `ParametersAgent.run`
 
 Meaning:
@@ -1081,7 +1017,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `Extracted JSON blob: %s`
-- Location: `app/agents/parameter_agent.py:184` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L184)
+- Location: `app/agents/parameter_agent.py:174` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L174)
 - Function: `ParametersAgent.run`
 
 Meaning:
@@ -1097,7 +1033,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `Parsed params from LLM: %s`
-- Location: `app/agents/parameter_agent.py:186` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L186)
+- Location: `app/agents/parameter_agent.py:176` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L176)
 - Function: `ParametersAgent.run`
 
 Meaning:
@@ -1113,7 +1049,7 @@ Next steps:
 
 - Level: `error`
 - Message: `LLM JSON parse error (%s). Raw response was: %s`
-- Location: `app/agents/parameter_agent.py:191` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L191)
+- Location: `app/agents/parameter_agent.py:178` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L178)
 - Function: `ParametersAgent.run`
 
 Meaning:
@@ -1129,7 +1065,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Falling back to regex-only extraction.`
-- Location: `app/agents/parameter_agent.py:192` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L192)
+- Location: `app/agents/parameter_agent.py:179` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L179)
 - Function: `ParametersAgent.run`
 
 Meaning:
@@ -1145,7 +1081,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `Fallback params: %s`
-- Location: `app/agents/parameter_agent.py:194` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L194)
+- Location: `app/agents/parameter_agent.py:181` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L181)
 - Function: `ParametersAgent.run`
 
 Meaning:
@@ -1161,7 +1097,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Ollama API call failed: {...}. Using fallback extraction.`
-- Location: `app/agents/parameter_agent.py:197` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L197)
+- Location: `app/agents/parameter_agent.py:184` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L184)
 - Function: `ParametersAgent.run`
 
 Meaning:
@@ -1177,7 +1113,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `Using database prompt for parameter_extraction_system`
-- Location: `app/agents/parameter_agent.py:255` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L255)
+- Location: `app/agents/parameter_agent.py:242` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L242)
 - Function: `ParametersAgent._build_system_prompt`
 
 Meaning:
@@ -1193,7 +1129,7 @@ Next steps:
 
 - Level: `warning`
 - Message: `Database prompt not found, falling back to hardcoded prompt`
-- Location: `app/agents/parameter_agent.py:257` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L257)
+- Location: `app/agents/parameter_agent.py:244` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L244)
 - Function: `ParametersAgent._build_system_prompt`
 
 Meaning:
@@ -1209,7 +1145,7 @@ Next steps:
 
 - Level: `warning`
 - Message: `Failed to get prompt from database: {...}, using hardcoded prompt`
-- Location: `app/agents/parameter_agent.py:259` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L259)
+- Location: `app/agents/parameter_agent.py:246` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L246)
 - Function: `ParametersAgent._build_system_prompt`
 
 Meaning:
@@ -1225,7 +1161,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `After stripping think blocks (length=%d): %s`
-- Location: `app/agents/parameter_agent.py:298` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L298)
+- Location: `app/agents/parameter_agent.py:285` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L285)
 - Function: `ParametersAgent._extract_json_block`
 
 Meaning:
@@ -1241,7 +1177,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `_fallback called with text: %s`
-- Location: `app/agents/parameter_agent.py:466` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L466)
+- Location: `app/agents/parameter_agent.py:453` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L453)
 - Function: `ParametersAgent._fallback`
 
 Meaning:
@@ -1257,7 +1193,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `_fallback: normalized date from text = %s`
-- Location: `app/agents/parameter_agent.py:468` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L468)
+- Location: `app/agents/parameter_agent.py:455` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L455)
 - Function: `ParametersAgent._fallback`
 
 Meaning:
@@ -1273,7 +1209,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `_fallback: inferred domain = %s`
-- Location: `app/agents/parameter_agent.py:470` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L470)
+- Location: `app/agents/parameter_agent.py:457` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L457)
 - Function: `ParametersAgent._fallback`
 
 Meaning:
@@ -1289,24 +1225,8 @@ Next steps:
 
 - Level: `debug`
 - Message: `_fallback: sanitized query_keys = %s`
-- Location: `app/agents/parameter_agent.py:472` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L472)
+- Location: `app/agents/parameter_agent.py:459` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py#L459)
 - Function: `ParametersAgent._fallback`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-2ACE15B7BD
-
-- Level: `warning`
-- Message: `PlanningAgent failed; using fallback: %s`
-- Location: `app/agents/planning_agent.py:63` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/planning_agent.py#L63)
-- Function: `PlanningAgent.run`
 
 Meaning:
 - (fill in)
@@ -1465,7 +1385,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `Using database prompt for {...}`
-- Location: `app/agents/verify_agent.py:35` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L35)
+- Location: `app/agents/verify_agent.py:31` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L31)
 - Function: `_get_prompt_from_db`
 
 Meaning:
@@ -1481,7 +1401,7 @@ Next steps:
 
 - Level: `warning`
 - Message: `Failed to get prompt '{...}' from database: {...}`
-- Location: `app/agents/verify_agent.py:38` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L38)
+- Location: `app/agents/verify_agent.py:34` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L34)
 - Function: `_get_prompt_from_db`
 
 Meaning:
@@ -1497,7 +1417,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Loaded {...} context rules from {...}`
-- Location: `app/agents/verify_agent.py:109` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L109)
+- Location: `app/agents/verify_agent.py:105` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L105)
 - Function: `RAGContextManager.load_context_rules`
 
 Meaning:
@@ -1513,7 +1433,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error loading context rules: {...}`
-- Location: `app/agents/verify_agent.py:112` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L112)
+- Location: `app/agents/verify_agent.py:108` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L108)
 - Function: `RAGContextManager.load_context_rules`
 
 Meaning:
@@ -1529,7 +1449,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Created default context file: {...}`
-- Location: `app/agents/verify_agent.py:148` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L148)
+- Location: `app/agents/verify_agent.py:144` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L144)
 - Function: `RAGContextManager.create_default_context_file`
 
 Meaning:
@@ -1545,7 +1465,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error creating default context file: {...}`
-- Location: `app/agents/verify_agent.py:151` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L151)
+- Location: `app/agents/verify_agent.py:147` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L147)
 - Function: `RAGContextManager.create_default_context_file`
 
 Meaning:
@@ -1561,7 +1481,7 @@ Next steps:
 
 - Level: `info`
 - Message: `RelevanceAnalyzerAgent initialized with model: {...}`
-- Location: `app/agents/verify_agent.py:226` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L226)
+- Location: `app/agents/verify_agent.py:222` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L222)
 - Function: `RelevanceAnalyzerAgent.__init__`
 
 Meaning:
@@ -1577,7 +1497,7 @@ Next steps:
 
 - Level: `info`
 - Message: `RAG context rules loaded: {...}`
-- Location: `app/agents/verify_agent.py:227` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L227)
+- Location: `app/agents/verify_agent.py:223` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L223)
 - Function: `RelevanceAnalyzerAgent.__init__`
 
 Meaning:
@@ -1593,7 +1513,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Starting batch relevance analysis for {...} files`
-- Location: `app/agents/verify_agent.py:240` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L240)
+- Location: `app/agents/verify_agent.py:236` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L236)
 - Function: `RelevanceAnalyzerAgent.analyze_batch_relevance`
 
 Meaning:
@@ -1609,7 +1529,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Found {...} relevant context rules`
-- Location: `app/agents/verify_agent.py:248` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L248)
+- Location: `app/agents/verify_agent.py:244` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L244)
 - Function: `RelevanceAnalyzerAgent.analyze_batch_relevance`
 
 Meaning:
@@ -1625,7 +1545,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error analyzing file {...}: {...}`
-- Location: `app/agents/verify_agent.py:285` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L285)
+- Location: `app/agents/verify_agent.py:281` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L281)
 - Function: `RelevanceAnalyzerAgent.analyze_batch_relevance`
 
 Meaning:
@@ -1641,7 +1561,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Processed batch {...}/{...}`
-- Location: `app/agents/verify_agent.py:290` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L290)
+- Location: `app/agents/verify_agent.py:286` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L286)
 - Function: `RelevanceAnalyzerAgent.analyze_batch_relevance`
 
 Meaning:
@@ -1657,7 +1577,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Analyzing relevance for file: {...}`
-- Location: `app/agents/verify_agent.py:344` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L344)
+- Location: `app/agents/verify_agent.py:340` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L340)
 - Function: `RelevanceAnalyzerAgent.analyze_single_file_relevance`
 
 Meaning:
@@ -1673,24 +1593,8 @@ Next steps:
 
 - Level: `info`
 - Message: `Completed analysis for {...}: {...} (score: {...})`
-- Location: `app/agents/verify_agent.py:413` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L413)
+- Location: `app/agents/verify_agent.py:409` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L409)
 - Function: `RelevanceAnalyzerAgent.analyze_single_file_relevance`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-8896410743
-
-- Level: `info`
-- Message: `Using cached relevance analysis`
-- Location: `app/agents/verify_agent.py:516` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L516)
-- Function: `RelevanceAnalyzerAgent._analyze_relevance_with_rag`
 
 Meaning:
 - (fill in)
@@ -1705,7 +1609,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error in relevance analysis: {...}`
-- Location: `app/agents/verify_agent.py:535` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L535)
+- Location: `app/agents/verify_agent.py:525` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L525)
 - Function: `RelevanceAnalyzerAgent._analyze_relevance_with_rag`
 
 Meaning:
@@ -1721,7 +1625,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error extracting trace info: {...}`
-- Location: `app/agents/verify_agent.py:612` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L612)
+- Location: `app/agents/verify_agent.py:602` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L602)
 - Function: `RelevanceAnalyzerAgent._extract_trace_info`
 
 Meaning:
@@ -1737,7 +1641,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error reading file {...}: {...}`
-- Location: `app/agents/verify_agent.py:637` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L637)
+- Location: `app/agents/verify_agent.py:627` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L627)
 - Function: `RelevanceAnalyzerAgent._read_trace_file`
 
 Meaning:
@@ -1753,7 +1657,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Safe JSON parse error: {...}`
-- Location: `app/agents/verify_agent.py:788` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L788)
+- Location: `app/agents/verify_agent.py:778` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L778)
 - Function: `RelevanceAnalyzerAgent._safe_parse_json`
 
 Meaning:
@@ -1769,7 +1673,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Results exported to: {...}`
-- Location: `app/agents/verify_agent.py:890` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L890)
+- Location: `app/agents/verify_agent.py:880` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L880)
 - Function: `RelevanceAnalyzerAgent.export_results_to_file`
 
 Meaning:
@@ -1785,7 +1689,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error exporting results: {...}`
-- Location: `app/agents/verify_agent.py:894` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L894)
+- Location: `app/agents/verify_agent.py:884` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L884)
 - Function: `RelevanceAnalyzerAgent.export_results_to_file`
 
 Meaning:
@@ -1801,7 +1705,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Reloaded {...} context rules`
-- Location: `app/agents/verify_agent.py:902` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L902)
+- Location: `app/agents/verify_agent.py:892` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L892)
 - Function: `RelevanceAnalyzerAgent.reload_context_rules`
 
 Meaning:
@@ -1817,7 +1721,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Added new context rule: {...}`
-- Location: `app/agents/verify_agent.py:920` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L920)
+- Location: `app/agents/verify_agent.py:910` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L910)
 - Function: `RelevanceAnalyzerAgent.add_context_rule`
 
 Meaning:
@@ -1833,7 +1737,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error adding context rule: {...}`
-- Location: `app/agents/verify_agent.py:924` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L924)
+- Location: `app/agents/verify_agent.py:914` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L914)
 - Function: `RelevanceAnalyzerAgent.add_context_rule`
 
 Meaning:
@@ -1849,7 +1753,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error generating verification summary string from {...}: {...}`
-- Location: `app/agents/verify_agent.py:966` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L966)
+- Location: `app/agents/verify_agent.py:956` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L956)
 - Function: `RelevanceAnalyzerAgent.get_verification_summary_string`
 
 Meaning:
@@ -1865,7 +1769,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error generating detailed verification summary string from {...}: {...}`
-- Location: `app/agents/verify_agent.py:1012` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L1012)
+- Location: `app/agents/verify_agent.py:1002` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L1002)
 - Function: `RelevanceAnalyzerAgent.get_verification_summary_string_detailed`
 
 Meaning:
@@ -1881,7 +1785,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error parsing results summary: {...}`
-- Location: `app/agents/verify_agent.py:1077` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L1077)
+- Location: `app/agents/verify_agent.py:1067` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py#L1067)
 - Function: `RelevanceAnalyzerAgent.parse_results_summary`
 
 Meaning:
@@ -2037,27 +1941,11 @@ Causes:
 Next steps:
 - (fill in)
 
-## LOG-9A0D37E058
-
-- Level: `debug`
-- Message: `Generated plan: %s`
-- Location: `app/orchestrator.py:89` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L89)
-- Function: `Orchestrator.analyze_stream`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
 ## LOG-FD8C111B07
 
 - Level: `info`
 - Message: `Analysis complete.`
-- Location: `app/orchestrator.py:120` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L120)
+- Location: `app/orchestrator.py:107` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L107)
 - Function: `Orchestrator.analyze_stream`
 
 Meaning:
@@ -2073,7 +1961,7 @@ Next steps:
 
 - Level: `warning`
 - Message: `Negation rules file not found at {...}`
-- Location: `app/orchestrator.py:138` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L138)
+- Location: `app/orchestrator.py:125` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L125)
 - Function: `Orchestrator._load_negate_keys`
 
 Meaning:
@@ -2089,7 +1977,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error reading negate rules: {...}`
-- Location: `app/orchestrator.py:140` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L140)
+- Location: `app/orchestrator.py:127` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L127)
 - Function: `Orchestrator._load_negate_keys`
 
 Meaning:
@@ -2105,7 +1993,7 @@ Next steps:
 
 - Level: `info`
 - Message: `STEP 1: Parameter extraction…`
-- Location: `app/orchestrator.py:145` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L145)
+- Location: `app/orchestrator.py:132` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L132)
 - Function: `Orchestrator._step1_extract_parameters`
 
 Meaning:
@@ -2121,7 +2009,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Extracted parameters: %s`
-- Location: `app/orchestrator.py:147` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L147)
+- Location: `app/orchestrator.py:134` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L134)
 - Function: `Orchestrator._step1_extract_parameters`
 
 Meaning:
@@ -2137,7 +2025,7 @@ Next steps:
 
 - Level: `warning`
 - Message: `Unknown project type: {...}`
-- Location: `app/orchestrator.py:157` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L157)
+- Location: `app/orchestrator.py:144` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L144)
 - Function: `Orchestrator._step2_search_logs`
 
 Meaning:
@@ -2153,7 +2041,7 @@ Next steps:
 
 - Level: `info`
 - Message: `STEP 2: File search…`
-- Location: `app/orchestrator.py:162` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L162)
+- Location: `app/orchestrator.py:149` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L149)
 - Function: `Orchestrator._step2_search_logs_file_based`
 
 Meaning:
@@ -2169,7 +2057,7 @@ Next steps:
 
 - Level: `info`
 - Message: `<dynamic message>`
-- Location: `app/orchestrator.py:165` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L165)
+- Location: `app/orchestrator.py:152` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L152)
 - Function: `Orchestrator._step2_search_logs_file_based`
 
 Meaning:
@@ -2185,7 +2073,7 @@ Next steps:
 
 - Level: `info`
 - Message: `STEP 2: Loki search…`
-- Location: `app/orchestrator.py:170` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L170)
+- Location: `app/orchestrator.py:157` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L157)
 - Function: `Orchestrator._step2_search_logs_loki`
 
 Meaning:
@@ -2201,7 +2089,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `Loki search: query_keys=%s, search_date=%s`
-- Location: `app/orchestrator.py:173` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L173)
+- Location: `app/orchestrator.py:160` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L160)
 - Function: `Orchestrator._step2_search_logs_loki`
 
 Meaning:
@@ -2217,7 +2105,7 @@ Next steps:
 
 - Level: `error`
 - Message: `time_frame is None or empty - cannot proceed with Loki search without a date`
-- Location: `app/orchestrator.py:177` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L177)
+- Location: `app/orchestrator.py:164` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L164)
 - Function: `Orchestrator._step2_search_logs_loki`
 
 Meaning:
@@ -2233,7 +2121,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Failed to parse time_frame '%s': %s`
-- Location: `app/orchestrator.py:183` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L183)
+- Location: `app/orchestrator.py:170` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L170)
 - Function: `Orchestrator._step2_search_logs_loki`
 
 Meaning:
@@ -2249,7 +2137,7 @@ Next steps:
 
 - Level: `debug`
 - Message: `Loki search date range: %s to %s`
-- Location: `app/orchestrator.py:188` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L188)
+- Location: `app/orchestrator.py:175` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L175)
 - Function: `Orchestrator._step2_search_logs_loki`
 
 Meaning:
@@ -2265,7 +2153,7 @@ Next steps:
 
 - Level: `info`
 - Message: `Downloaded logs to {...}`
-- Location: `app/orchestrator.py:205` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L205)
+- Location: `app/orchestrator.py:188` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L188)
 - Function: `Orchestrator._step2_search_logs_loki`
 
 Meaning:
@@ -2281,7 +2169,7 @@ Next steps:
 
 - Level: `info`
 - Message: `STEP 3: Trace ID collection…`
-- Location: `app/orchestrator.py:210` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L210)
+- Location: `app/orchestrator.py:193` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L193)
 - Function: `Orchestrator._step3_collect_trace_ids`
 
 Meaning:
@@ -2297,7 +2185,7 @@ Next steps:
 
 - Level: `info`
 - Message: `<dynamic message>`
-- Location: `app/orchestrator.py:226` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L226)
+- Location: `app/orchestrator.py:209` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L209)
 - Function: `Orchestrator._step3_collect_trace_ids_file_based`
 
 Meaning:
@@ -2313,7 +2201,7 @@ Next steps:
 
 - Level: `info`
 - Message: `<dynamic message>`
-- Location: `app/orchestrator.py:232` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L232)
+- Location: `app/orchestrator.py:215` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L215)
 - Function: `Orchestrator._step3_collect_trace_ids_loki`
 
 Meaning:
@@ -2329,7 +2217,7 @@ Next steps:
 
 - Level: `info`
 - Message: `STEP 4: Compiling full logs…`
-- Location: `app/orchestrator.py:237` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L237)
+- Location: `app/orchestrator.py:220` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L220)
 - Function: `Orchestrator._step4_compile_logs`
 
 Meaning:
@@ -2345,7 +2233,7 @@ Next steps:
 
 - Level: `info`
 - Message: `<dynamic message>`
-- Location: `app/orchestrator.py:269` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L269)
+- Location: `app/orchestrator.py:252` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L252)
 - Function: `Orchestrator._step4_compile_logs_file_based`
 
 Meaning:
@@ -2361,7 +2249,7 @@ Next steps:
 
 - Level: `info`
 - Message: `<dynamic message>`
-- Location: `app/orchestrator.py:281` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L281)
+- Location: `app/orchestrator.py:264` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L264)
 - Function: `Orchestrator._step4_compile_logs_loki`
 
 Meaning:
@@ -2377,7 +2265,7 @@ Next steps:
 
 - Level: `info`
 - Message: `STEP 5: Verification & file gen…`
-- Location: `app/orchestrator.py:286` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L286)
+- Location: `app/orchestrator.py:269` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L269)
 - Function: `Orchestrator._step5_analyze_and_generate_reports`
 
 Meaning:
@@ -2393,7 +2281,7 @@ Next steps:
 
 - Level: `info`
 - Message: `STEP 6: Running verify agents with parameters and original text…`
-- Location: `app/orchestrator.py:325` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L325)
+- Location: `app/orchestrator.py:308` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/orchestrator.py#L308)
 - Function: `Orchestrator._step6_verify`
 
 Meaning:
@@ -2425,7 +2313,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error serializing payload for step {...}: {...}`
-- Location: `app/routers/chat.py:97` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/routers/chat.py#L97)
+- Location: `app/routers/chat.py:91` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/routers/chat.py#L91)
 - Function: `chat_stream.event_generator`
 
 Meaning:
@@ -2441,7 +2329,7 @@ Next steps:
 
 - Level: `error`
 - Message: `Error in chat stream: {...}`
-- Location: `app/routers/chat.py:107` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/routers/chat.py#L107)
+- Location: `app/routers/chat.py:99` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/routers/chat.py#L99)
 - Function: `chat_stream.event_generator`
 
 Meaning:
@@ -2603,150 +2491,6 @@ Next steps:
 - Message: `Application shutting down`
 - Location: `app/startup.py:44` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/startup.py#L44)
 - Function: `lifespan`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-55819EEAD5
-
-- Level: `info`
-- Message: `Loki cache hit: {...}... -> {...}`
-- Location: `app/tools/loki/loki_query_builder.py:274` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/tools/loki/loki_query_builder.py#L274)
-- Function: `download_logs_cached`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-09E9DDA765
-
-- Level: `debug`
-- Message: `Downloading Loki logs: {...}`
-- Location: `app/tools/loki/loki_query_builder.py:312` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/tools/loki/loki_query_builder.py#L312)
-- Function: `download_logs_cached`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-37733BBFB4
-
-- Level: `info`
-- Message: `Loki logs cached: {...}... -> {...} (TTL: {...}s)`
-- Location: `app/tools/loki/loki_query_builder.py:322` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/tools/loki/loki_query_builder.py#L322)
-- Function: `download_logs_cached`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-6F5D894BF3
-
-- Level: `warning`
-- Message: `Downloaded file is empty or missing: {...}`
-- Location: `app/tools/loki/loki_query_builder.py:325` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/tools/loki/loki_query_builder.py#L325)
-- Function: `download_logs_cached`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-659220B7C9
-
-- Level: `error`
-- Message: `Error downloading Loki logs: {...}`
-- Location: `app/tools/loki/loki_query_builder.py:329` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/tools/loki/loki_query_builder.py#L329)
-- Function: `download_logs_cached`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-67B00CB9C5
-
-- Level: `error`
-- Message: `Unexpected error in download_logs_cached: {...}`
-- Location: `app/tools/loki/loki_query_builder.py:333` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/tools/loki/loki_query_builder.py#L333)
-- Function: `download_logs_cached`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-62846E631A
-
-- Level: `debug`
-- Message: `Removed cache file: {...}`
-- Location: `app/tools/loki/loki_query_builder.py:364` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/tools/loki/loki_query_builder.py#L364)
-- Function: `clear_loki_cache`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-A266079379
-
-- Level: `warning`
-- Message: `Failed to remove cache file {...}: {...}`
-- Location: `app/tools/loki/loki_query_builder.py:366` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/tools/loki/loki_query_builder.py#L366)
-- Function: `clear_loki_cache`
-
-Meaning:
-- (fill in)
-
-Causes:
-- (fill in)
-
-Next steps:
-- (fill in)
-
-## LOG-C25D6B4D3D
-
-- Level: `info`
-- Message: `Cleared {...} Loki cache files`
-- Location: `app/tools/loki/loki_query_builder.py:372` — [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/tools/loki/loki_query_builder.py#L372)
-- Function: `clear_loki_cache`
 
 Meaning:
 - (fill in)

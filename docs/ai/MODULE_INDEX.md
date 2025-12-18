@@ -1,4 +1,4 @@
-<!-- Generated on commit: 6d7866c6a41b75e100432ec50fbcd565aedb15bc -->
+<!-- Generated on commit: 587e82e13aa226d1827d16cbcffa9e92a2ed75d2 -->
 <!-- DO NOT EDIT: Run `python scripts/build_agent_docs.py` -->
 
 # Module index (generated)
@@ -19,7 +19,7 @@ Modules:
 | `app.agents.analyze_agent` | `app/agents/analyze_agent.py` | agents/analyze_agent.py - Refactored version focusing on analysis generation | [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/analyze_agent.py) |
 | `app.agents.file_searcher` | `app/agents/file_searcher.py` |  | [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/file_searcher.py) |
 | `app.agents.parameter_agent` | `app/agents/parameter_agent.py` | parameters_agent.py | [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/parameter_agent.py) |
-| `app.agents.planning_agent` | `app/agents/planning_agent.py` |  | [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/planning_agent.py) |
+| `app.agents.planning_agent` | `app/agents/planning_agent.py` | Stubbed PlanningAgent: not used in current orchestration | [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/planning_agent.py) |
 | `app.agents.report_writer` | `app/agents/report_writer.py` | agents/report_writer.py - Handles all report generation and file writing | [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/report_writer.py) |
 | `app.agents.verify_agent` | `app/agents/verify_agent.py` | agents/verify_agent.py | [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/agents/verify_agent.py) |
 | `app.config` | `app/config.py` | app/core/config.py | [link](https://github.com/Abbiirr/agent-loggy/blob/main/app/config.py) |

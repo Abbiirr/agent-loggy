@@ -26,19 +26,7 @@ plugins:
             show_root_heading: true
             heading_level: 2
 
-nav:
-  - Home: index.md
-  - AI Docs:
-      - Overview: ai/index.md
-      - Entrypoint: ai/ENTRYPOINT.md
-      - Architecture: ai/ARCHITECTURE.md
-      - Module index (generated): ai/MODULE_INDEX.md
-      - Config reference (generated): ai/CONFIG_REFERENCE.md
-      - Log catalog (generated): ai/LOG_CATALOG.md
-      - Repo tree (generated): ai/REPO_TREE.md
-      - Glossary: ai/GLOSSARY.md
-      - Quality bar: ai/QUALITY_BAR.md
-      - Decisions:
-          - ADR-0001: ai/DECISIONS/ADR-0001-docs-and-agent-pack.md
-  - Reference:
-      - Overview: reference/index.md
+# MkDocs treats `README.md` as an alternate index page name; keep `docs/README.md`
+# in the repo for contributors, but exclude it from the site build to avoid URL conflicts.
+exclude_docs: |
+  README.md

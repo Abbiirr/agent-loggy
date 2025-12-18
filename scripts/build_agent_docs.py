@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Iterator
 
 
 REPO_URL = "https://github.com/Abbiirr/agent-loggy"
@@ -93,42 +92,54 @@ def _posix_relpath(path: Path, base: Path) -> str:
     return path.relative_to(base).as_posix()
 
 
-def _iter_files(repo_root: Path, *, suffix: str | None = None) -> Iterator[Path]:
-    for dirpath, dirnames, filenames in os.walk(repo_root):
-        dirnames[:] = sorted(d for d in dirnames if d not in EXCLUDE_DIR_NAMES)
-        for filename in sorted(filenames):
-            file_path = Path(dirpath) / filename
-            try:
-                rel = file_path.relative_to(repo_root)
-            except ValueError:
-                continue
-            if any(part in EXCLUDE_DIR_NAMES for part in rel.parts):
-                continue
-            if suffix is not None and file_path.suffix != suffix:
-                continue
-            yield file_path
+def _git_ls_files(repo_root: Path) -> list[str]:
+    raw = _run_git(repo_root, ["ls-files"])
+    paths = [line.strip() for line in raw.splitlines() if line.strip()]
+    return sorted(paths)
+
+
+def _iter_tracked_files(repo_root: Path, *, suffix: str | None = None) -> Iterator[Path]:
+    for rel_posix in _git_ls_files(repo_root):
+        if suffix is not None and not rel_posix.endswith(suffix):
+            continue
+        rel = Path(rel_posix)
+        if any(part in EXCLUDE_DIR_NAMES for part in rel.parts):
+            continue
+        yield repo_root / rel
 
 
 def _render_repo_tree(repo_root: Path, commit_sha: str) -> str:
-    def walk(dir_path: Path, prefix: str = "") -> list[str]:
-        children = []
-        entries = []
-        try:
-            entries = list(dir_path.iterdir())
-        except OSError:
-            return []
-        dirs = sorted([p for p in entries if p.is_dir() and p.name not in EXCLUDE_DIR_NAMES], key=lambda p: p.name)
-        files = sorted([p for p in entries if p.is_file()], key=lambda p: p.name)
-        all_entries = dirs + files
-        for idx, entry in enumerate(all_entries):
-            is_last = idx == len(all_entries) - 1
+    tracked = _git_ls_files(repo_root)
+
+    def add_path(tree: dict, parts: list[str]) -> None:
+        cur = tree
+        for p in parts:
+            cur = cur.setdefault(p, {})
+
+    def render(tree: dict, prefix: str = "") -> list[str]:
+        out: list[str] = []
+        keys = sorted(tree.keys(), key=lambda k: (not k.endswith("/"), k.lower()))
+        for idx, key in enumerate(keys):
+            is_last = idx == len(keys) - 1
             connector = "└── " if is_last else "├── "
-            display = f"{entry.name}/" if entry.is_dir() else entry.name
-            children.append(prefix + connector + display)
-            if entry.is_dir():
+            out.append(prefix + connector + key)
+            subtree = tree[key]
+            if subtree:
                 extension = "    " if is_last else "│   "
-                children.extend(walk(entry, prefix + extension))
-        return children
+                out.extend(render(subtree, prefix + extension))
+        return out
+
+    root_tree: dict = {}
+    for rel_posix in tracked:
+        rel = Path(rel_posix)
+        if any(part in EXCLUDE_DIR_NAMES for part in rel.parts):
+            continue
+        parts = list(rel.parts)
+        if len(parts) > 1:
+            parts = [parts[0] + "/"] + [p + "/" for p in parts[1:-1]] + [parts[-1]]
+        else:
+            parts = [parts[0]]
+        add_path(root_tree, parts)
 
     lines: list[str] = []
     lines.extend(_generated_header(commit_sha, "python scripts/build_agent_docs.py"))
@@ -140,7 +151,7 @@ def _render_repo_tree(repo_root: Path, commit_sha: str) -> str:
     lines.append("")
     lines.append("```text")
     lines.append(".")
-    lines.extend(walk(repo_root))
+    lines.extend(render(root_tree))
     lines.append("```")
     lines.append("")
     return "\n".join(lines)
@@ -202,13 +213,13 @@ def _render_module_index(repo_root: Path, commit_sha: str) -> str:
     ]
 
     modules: list[tuple[str, str, str, str]] = []
-    for py_file in _iter_files(repo_root, suffix=".py"):
+    for py_file in _iter_tracked_files(repo_root, suffix=".py"):
         module = _module_name_for_file(repo_root, py_file)
         if not module:
             continue
         rel_posix = _posix_relpath(py_file, repo_root)
         summary = _module_summary(py_file)
-        source_url = f"{REPO_URL}/blob/{commit_sha}/{rel_posix}"
+        source_url = f"{REPO_URL}/blob/main/{rel_posix}"
         modules.append((module, rel_posix, summary, source_url))
 
     modules.sort(key=lambda r: r[0])
@@ -372,7 +383,7 @@ def _extract_config_refs_from_env_usage(py_file: Path, repo_root: Path) -> list[
 
 def _render_config_reference(repo_root: Path, commit_sha: str) -> str:
     refs: list[ConfigRef] = []
-    for py_file in _iter_files(repo_root, suffix=".py"):
+    for py_file in _iter_tracked_files(repo_root, suffix=".py"):
         refs.extend(_extract_config_refs_from_settings_classes(py_file, repo_root))
         refs.extend(_extract_config_refs_from_env_usage(py_file, repo_root))
 
@@ -401,7 +412,7 @@ def _render_config_reference(repo_root: Path, commit_sha: str) -> str:
             lines.append("- Defaults: (not detected)")
         lines.append("- References:")
         for r in key_refs:
-            source_url = f"{REPO_URL}/blob/{commit_sha}/{r.path}#L{r.line}"
+            source_url = f"{REPO_URL}/blob/main/{r.path}#L{r.line}"
             lines.append(f"  - `{r.path}:{r.line}` ({r.kind}) — [link]({source_url})")
         lines.append("")
     return "\n".join(lines)
@@ -521,7 +532,7 @@ def _extract_logs(py_file: Path, repo_root: Path) -> list[LogRef]:
 
 def _render_log_catalog(repo_root: Path, commit_sha: str) -> str:
     all_logs: list[LogRef] = []
-    for py_file in _iter_files(repo_root, suffix=".py"):
+    for py_file in _iter_tracked_files(repo_root, suffix=".py"):
         all_logs.extend(_extract_logs(py_file, repo_root))
 
     def log_sort_key(lr: LogRef) -> tuple[str, int, str, str]:
@@ -538,7 +549,7 @@ def _render_log_catalog(repo_root: Path, commit_sha: str) -> str:
 
     for lr in all_logs:
         log_id = _stable_id("LOG", f"{lr.path}|{lr.template}")
-        source_url = f"{REPO_URL}/blob/{commit_sha}/{lr.path}#L{lr.line}"
+        source_url = f"{REPO_URL}/blob/main/{lr.path}#L{lr.line}"
         lines.append(f"## {log_id}")
         lines.append("")
         lines.append(f"- Level: `{lr.level}`")

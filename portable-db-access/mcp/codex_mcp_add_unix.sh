@@ -10,6 +10,8 @@ if [[ -z "${DSN}" ]]; then
   exit 1
 fi
 
-codex mcp add "${NAME}" --env "DSN=${DSN}" -- \
-  npx -y @bytebase/dbhub --readonly --max-rows "${MAX_ROWS}" --dsn "${DSN}"
+RUNNER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNNER="${RUNNER_DIR}/dbhub_stdio_unix.sh"
 
+codex mcp add "${NAME}" -- \
+  env MAX_ROWS="${MAX_ROWS}" bash "${RUNNER}"

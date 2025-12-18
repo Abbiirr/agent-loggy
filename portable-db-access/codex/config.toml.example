@@ -1,11 +1,11 @@
 # Example `~/.codex/config.toml`
 #
-# Prefer the CLI-based setup in `portable-db-access/mcp/codex_mcp_add_windows.ps1`
-# so the DSN can live in an env var instead of being hard-coded in this file.
+# Prefer the CLI-based setup in `portable-db-access/mcp/codex_mcp_add_windows.ps1`.
+# If you use this config file, keep the DSN in an env var (DB_READONLY_DSN).
 
 [mcp_servers.db]
-command = "npx"
-args = ["-y", "@bytebase/dbhub", "--readonly", "--max-rows", "1000", "--dsn", "postgresql://readonly:REPLACE_ME_PASSWORD@HOST:5432/your_db"]
+command = "powershell"
+args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\path\\to\\portable-db-access\\mcp\\dbhub_stdio_windows.ps1", "-MaxRows", "1000"]
 
 [shell_environment_policy]
 include_only = ["PATH", "HOME", "USERPROFILE", "DB_READONLY_DSN", "DSN"]

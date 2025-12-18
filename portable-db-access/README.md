@@ -49,8 +49,11 @@ Copy-Item portable-db-access/.env.example portable-db-access/.env
 - Codex CLI (Windows): `portable-db-access/mcp/codex_mcp_add_windows.ps1`
 - Codex CLI (macOS/Linux/WSL): `portable-db-access/mcp/codex_mcp_add_unix.sh`
 
-These scripts expect `DB_READONLY_DSN` to be set (you can `dotenv`-load it, or set it manually).
-If you see `unknown option '-y'`, your `npx` is older; the Windows scripts auto-fallback (or update Node.js/npm).
+These scripts expect `DB_READONLY_DSN` to be set in your environment.
+They run DBHub via a small runner script which generates a temporary `dbhub.toml` enabling read-only mode (DBHub removed the `--readonly` flag).
+
+Windows runner: `portable-db-access/mcp/dbhub_stdio_windows.ps1`  
+Unix runner: `portable-db-access/mcp/dbhub_stdio_unix.sh`
 
 ## 3) Reduce accidental secret exposure (Codex)
 

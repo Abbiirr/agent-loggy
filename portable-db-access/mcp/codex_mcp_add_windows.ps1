@@ -2,7 +2,7 @@ param(
   [string]$Name = "db",
   [string]$Dsn = $env:DB_READONLY_DSN,
   [int]$MaxRows = 1000,
-  [switch]$NoCmd
+  [switch]$PersistDsn
 )
 
 if (-not $Dsn) {
@@ -16,36 +16,12 @@ if (-not $codex) {
   exit 1
 }
 
-$npx = Get-Command npx -ErrorAction SilentlyContinue
-if (-not $npx) {
-  Write-Error "Missing 'npx' (install Node.js / npm)."
-  exit 1
-}
+$runnerPath = Join-Path $PSScriptRoot "dbhub_stdio_windows.ps1"
+$runnerPath = (Resolve-Path $runnerPath).Path
 
-$npxYesArg = $null
-try {
-  $help = & npx --help 2>&1 | Out-String
-  if ($help -match "(?m)^\s*--yes\b") { $npxYesArg = "--yes" }
-  elseif ($help -match "(?m)^\s*-y\b") { $npxYesArg = "-y" }
-} catch {
-  $npxYesArg = $null
-}
-
-if (-not $npxYesArg) {
-  $env:npm_config_yes = "true"
-}
-
-if ($NoCmd) {
-  if ($npxYesArg) {
-    codex mcp add $Name --env "DSN=$Dsn" -- npx $npxYesArg @bytebase/dbhub --readonly --max-rows $MaxRows --dsn "$Dsn"
-  } else {
-    codex mcp add $Name --env "DSN=$Dsn" -- npx @bytebase/dbhub --readonly --max-rows $MaxRows --dsn "$Dsn"
-  }
+if ($PersistDsn) {
+  # WARNING: this stores the DSN value in Codex MCP config on disk.
+  codex mcp add $Name --env "DB_READONLY_DSN=$Dsn" -- powershell -NoProfile -ExecutionPolicy Bypass -File "$runnerPath" -MaxRows $MaxRows
 } else {
-  if ($npxYesArg) {
-    codex mcp add $Name --env "DSN=$Dsn" -- cmd /c npx $npxYesArg @bytebase/dbhub --readonly --max-rows $MaxRows --dsn "%DSN%"
-  } else {
-    codex mcp add $Name --env "DSN=$Dsn" -- cmd /c npx @bytebase/dbhub --readonly --max-rows $MaxRows --dsn "%DSN%"
-  }
+  codex mcp add $Name -- powershell -NoProfile -ExecutionPolicy Bypass -File "$runnerPath" -MaxRows $MaxRows
 }
-

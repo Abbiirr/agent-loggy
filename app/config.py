@@ -25,10 +25,19 @@ class Settings(BaseSettings):
     # Enable shared (cross-worker/pod) cache with Redis (requires `redis` package)
     LLM_CACHE_L2_ENABLED: bool = False
     LLM_CACHE_REDIS_URL: Optional[str] = None
+    # If true and `LLM_CACHE_REDIS_URL` is set, L2 will be enabled automatically when Redis is reachable.
+    LLM_CACHE_L2_AUTO_ENABLE: bool = True
 
     # Explicit invalidation knobs (bumped when prompts/gateway behavior changes)
     LLM_GATEWAY_VERSION: str = "v1"
     PROMPT_VERSION: str = "v1"
+
+    # ─── Loki cache settings ─────────────────────────────────
+    LOKI_CACHE_ENABLED: bool = True
+    LOKI_CACHE_REDIS_ENABLED: bool = False  # Enable Redis persistence for Loki cache
+    LOKI_CACHE_REDIS_URL: Optional[str] = None  # Falls back to LLM_CACHE_REDIS_URL if not set
+    LOKI_CACHE_TTL_SECONDS: int = 14400  # 4 hours for general queries
+    LOKI_CACHE_TRACE_TTL_SECONDS: int = 21600  # 6 hours for trace-specific queries
 
     # ─── Tell Pydantic-Settings how to load .env ─────────────
     model_config = SettingsConfigDict(

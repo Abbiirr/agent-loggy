@@ -204,3 +204,64 @@ def test_singleflight_coalesces_threads():
     assert all(v == {"ok": True} for v, _ in results)
     assert any(s == "COALESCED" for _, s in results)
 
+
+def test_l2_auto_enable_probe(monkeypatch):
+    import app.services.llm_gateway.gateway as gw_mod
+
+    class FakeRedisBackend:
+        def __init__(self, url, **kwargs):
+            self.url = url
+            self.hits = 0
+            self.misses = 0
+            self.sets = 0
+
+        def ping(self):
+            return True
+
+    monkeypatch.setattr(gw_mod, "_RedisBackend", FakeRedisBackend)
+
+    gw = gw_mod.LLMCacheGateway(
+        enabled=True,
+        gateway_version="v1",
+        prompt_version="v1",
+        namespace="default",
+        l1_max_entries=10,
+        l1_ttl_seconds=60,
+        redis_url="redis://10.112.30.10:6379/0",
+        l2_enabled=False,
+        l2_auto_enable=True,
+    )
+
+    assert gw.l2 is not None
+    assert gw.ping_l2()["enabled"] is True
+
+
+def test_l2_probe_sets_error_on_failed_ping(monkeypatch):
+    import app.services.llm_gateway.gateway as gw_mod
+
+    class FakeRedisBackend:
+        def __init__(self, url, **kwargs):
+            self.url = url
+            self.hits = 0
+            self.misses = 0
+            self.sets = 0
+
+        def ping(self):
+            return False
+
+    monkeypatch.setattr(gw_mod, "_RedisBackend", FakeRedisBackend)
+
+    gw = gw_mod.LLMCacheGateway(
+        enabled=True,
+        gateway_version="v1",
+        prompt_version="v1",
+        namespace="default",
+        l1_max_entries=10,
+        l1_ttl_seconds=60,
+        redis_url="redis://10.112.30.10:6379/0",
+        l2_enabled=False,
+        l2_auto_enable=True,
+    )
+
+    assert gw.l2 is None
+    assert gw.stats()["l2_last_error"] == "redis ping failed"

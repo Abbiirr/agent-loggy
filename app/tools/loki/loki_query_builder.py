@@ -10,6 +10,7 @@ from pathlib import Path
 import os
 
 from app.services.cache import cache_manager
+from app.services.loki_redis_cache import get_loki_cache_l2
 
 logger = logging.getLogger(__name__)
 
@@ -321,20 +322,35 @@ def download_logs_cached(
     ttl = LOKI_TRACE_CACHE_TTL if trace_id else LOKI_CACHE_TTL
     cache_name = "loki_trace" if trace_id else "loki"
 
-    # Check in-memory cache for file path
+    # Check in-memory cache (L1) for file path
     loki_cache = cache_manager.get_cache(cache_name, ttl=ttl)
+    loki_l2 = get_loki_cache_l2()
 
     if not force_refresh:
+        # L1 cache check (in-memory)
         cached_path = loki_cache.get(cache_key)
         if cached_path and Path(cached_path).exists():
             file_size = Path(cached_path).stat().st_size
             loki_cache_metrics.record_hit(file_size)
             logger.info(
-                f"Loki cache HIT: key={cache_key[:12]}... file={Path(cached_path).name} "
+                f"Loki cache HIT_L1: key={cache_key[:12]}... file={Path(cached_path).name} "
                 f"size={file_size} bytes (total hits: {loki_cache_metrics.hits}, "
                 f"hit_rate: {loki_cache_metrics.hit_rate():.1f}%)"
             )
             return cached_path
+
+        # L2 cache check (Redis) - only if L1 miss
+        l2_entry = loki_l2.get(cache_key)
+        if l2_entry and Path(l2_entry.file_path).exists():
+            # L2 hit - populate L1 and return
+            loki_cache.set(cache_key, l2_entry.file_path, ttl=ttl)
+            loki_cache_metrics.record_hit(l2_entry.file_size)
+            logger.info(
+                f"Loki cache HIT_L2: key={cache_key[:12]}... file={Path(l2_entry.file_path).name} "
+                f"size={l2_entry.file_size} bytes results={l2_entry.result_count} "
+                f"(promoted to L1, total hits: {loki_cache_metrics.hits})"
+            )
+            return l2_entry.file_path
 
     # Ensure cache directory exists
     LOKI_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -382,12 +398,41 @@ def download_logs_cached(
         # Verify file was created and has content
         if output_path.exists() and output_path.stat().st_size > 0:
             file_size = output_path.stat().st_size
-            # Cache the file path
-            loki_cache.set(cache_key, str(output_path), ttl=ttl)
-            logger.info(
-                f"Loki cache STORED: key={cache_key[:12]}... file={output_path.name} "
-                f"size={file_size} bytes TTL={ttl}s"
-            )
+
+            # Check if Loki actually returned results (don't cache empty results)
+            try:
+                with open(output_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                result_count = len(data.get('data', {}).get('result', []))
+
+                if result_count == 0:
+                    # Don't cache empty results - they might be temporary
+                    logger.warning(
+                        f"Loki returned empty results (not caching): key={cache_key[:12]}... "
+                        f"file={output_path.name}"
+                    )
+                    return str(output_path)  # Return file but don't cache it
+
+                # Cache the file path in L1 (only for non-empty results)
+                loki_cache.set(cache_key, str(output_path), ttl=ttl)
+
+                # Also store in L2 (Redis) for persistence across restarts
+                l2_stored = loki_l2.set(
+                    cache_key,
+                    str(output_path),
+                    result_count=result_count,
+                    file_size=file_size,
+                    ttl_seconds=ttl,
+                )
+
+                l2_status = "L1+L2" if l2_stored else "L1 only"
+                logger.info(
+                    f"Loki cache STORED ({l2_status}): key={cache_key[:12]}... file={output_path.name} "
+                    f"size={file_size} bytes results={result_count} TTL={ttl}s"
+                )
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Could not parse Loki response (not caching): {e}")
+
             return str(output_path)
         else:
             logger.warning(f"Downloaded file is empty or missing: {output_path}")
@@ -404,13 +449,14 @@ def download_logs_cached(
         return None
 
 
-def clear_loki_cache(older_than_hours: Optional[int] = None) -> int:
+def clear_loki_cache(older_than_hours: Optional[int] = None, clear_redis: bool = True) -> int:
     """
     Clear Loki cache files.
 
     Args:
         older_than_hours: If provided, only clear files older than this many hours.
                          If None, clear all cache files.
+        clear_redis: If True, also clear L2 Redis cache entries.
 
     Returns:
         Number of files removed
@@ -434,11 +480,17 @@ def clear_loki_cache(older_than_hours: Optional[int] = None) -> int:
         except Exception as e:
             logger.warning(f"Failed to remove cache file {cache_file}: {e}")
 
-    # Also invalidate in-memory caches
+    # Also invalidate in-memory caches (L1)
     cache_manager.invalidate("loki")
     cache_manager.invalidate("loki_trace")
 
-    logger.info(f"Cleared {removed_count} Loki cache files")
+    # Clear L2 Redis cache if requested
+    redis_cleared = 0
+    if clear_redis:
+        loki_l2 = get_loki_cache_l2()
+        redis_cleared = loki_l2.clear()
+
+    logger.info(f"Cleared {removed_count} Loki cache files, {redis_cleared} Redis entries")
     return removed_count
 
 
@@ -449,14 +501,17 @@ def get_loki_cache_stats() -> Dict[str, any]:
     Returns:
         Dict with cache statistics and metrics
     """
+    loki_l2 = get_loki_cache_l2()
+
     stats = {
         "cache_dir": str(LOKI_CACHE_DIR),
         "file_count": 0,
         "total_size_mb": 0,
-        "memory_cache_entries": {
-            "loki": cache_manager.get_cache("loki").size(),
-            "loki_trace": cache_manager.get_cache("loki_trace").size(),
+        "l1_cache": {
+            "loki_entries": cache_manager.get_cache("loki").size(),
+            "loki_trace_entries": cache_manager.get_cache("loki_trace").size(),
         },
+        "l2_cache": loki_l2.stats(),
         "metrics": loki_cache_metrics.to_dict(),
     }
 

@@ -24,6 +24,12 @@ from app.tools.loki.loki_query_builder import (
     LOKI_TRACE_CACHE_TTL,
 )
 from app.services.cache import cache_manager
+from app.services.loki_redis_cache import (
+    LokiRedisBackend,
+    LokiCacheL2,
+    LokiCacheEntry,
+    get_loki_cache_l2,
+)
 
 
 class TestLokiCacheKeyGeneration:
@@ -202,12 +208,19 @@ class TestLokiCacheStats:
         assert "cache_dir" in stats
         assert "loki_cache" in stats["cache_dir"]
 
-    def test_stats_include_memory_cache_entries(self):
-        """Stats should include memory cache entry counts."""
+    def test_stats_include_l1_cache_entries(self):
+        """Stats should include L1 memory cache entry counts."""
         stats = get_loki_cache_stats()
-        assert "memory_cache_entries" in stats
-        assert "loki" in stats["memory_cache_entries"]
-        assert "loki_trace" in stats["memory_cache_entries"]
+        assert "l1_cache" in stats
+        assert "loki_entries" in stats["l1_cache"]
+        assert "loki_trace_entries" in stats["l1_cache"]
+
+    def test_stats_include_l2_cache_info(self):
+        """Stats should include L2 Redis cache info."""
+        stats = get_loki_cache_stats()
+        assert "l2_cache" in stats
+        assert "enabled" in stats["l2_cache"]
+        assert "connected" in stats["l2_cache"]
 
 
 class TestDownloadLogsCached:
@@ -389,6 +402,80 @@ class TestClearLokiCache:
                 assert cache_file.exists()
 
 
+class TestEmptyResultsNotCached:
+    """Tests that empty Loki results are not cached."""
+
+    def setup_method(self):
+        """Reset metrics and clear caches before each test."""
+        reset_loki_cache_metrics()
+        cache_manager.invalidate("loki")
+        cache_manager.invalidate("loki_trace")
+
+    @patch("app.tools.loki.loki_query_builder.subprocess.run")
+    def test_empty_results_not_cached(self, mock_run):
+        """Empty Loki results should NOT be cached."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("app.tools.loki.loki_query_builder.LOKI_CACHE_DIR", Path(tmpdir)):
+                cache_key = _get_loki_cache_key(
+                    filters={"service_namespace": "test"},
+                    date_str="2025-12-17",
+                    end_date_str="2025-12-18",
+                )
+
+                # Create an empty Loki result file
+                empty_result_file = Path(tmpdir) / f"loki_{cache_key}.json"
+                empty_result_file.write_text('{"status":"success","data":{"result":[]}}')
+
+                result = download_logs_cached(
+                    filters={"service_namespace": "test"},
+                    date_str="2025-12-17",
+                    end_date_str="2025-12-18",
+                )
+
+                # File should be returned
+                assert result is not None
+
+                # But it should NOT be in the cache
+                loki_cache = cache_manager.get_cache("loki")
+                cached_path = loki_cache.get(cache_key)
+                assert cached_path is None, "Empty results should not be cached"
+
+    @patch("app.tools.loki.loki_query_builder.subprocess.run")
+    def test_non_empty_results_are_cached(self, mock_run):
+        """Non-empty Loki results SHOULD be cached."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("app.tools.loki.loki_query_builder.LOKI_CACHE_DIR", Path(tmpdir)):
+                cache_key = _get_loki_cache_key(
+                    filters={"service_namespace": "test"},
+                    date_str="2025-12-17",
+                    end_date_str="2025-12-18",
+                )
+
+                # Create a non-empty Loki result file
+                non_empty_file = Path(tmpdir) / f"loki_{cache_key}.json"
+                non_empty_file.write_text(
+                    '{"status":"success","data":{"result":[{"stream":{"trace_id":"abc123"}}]}}'
+                )
+
+                result = download_logs_cached(
+                    filters={"service_namespace": "test"},
+                    date_str="2025-12-17",
+                    end_date_str="2025-12-18",
+                )
+
+                # File should be returned
+                assert result is not None
+
+                # And it SHOULD be in the cache
+                loki_cache = cache_manager.get_cache("loki")
+                cached_path = loki_cache.get(cache_key)
+                assert cached_path is not None, "Non-empty results should be cached"
+
+
 class TestCacheKeyConsistency:
     """Tests to ensure cache keys are consistent across different scenarios."""
 
@@ -435,3 +522,310 @@ class TestCacheKeyConsistency:
             date_str="2025-12-17",
         )
         assert key1 == key2
+
+
+class TestLokiCacheEntry:
+    """Tests for LokiCacheEntry dataclass."""
+
+    def test_create_entry(self):
+        """Should create a valid cache entry."""
+        entry = LokiCacheEntry(
+            file_path="/tmp/test.json",
+            created_at=time.time(),
+            result_count=5,
+            file_size=1024,
+        )
+        assert entry.file_path == "/tmp/test.json"
+        assert entry.result_count == 5
+        assert entry.file_size == 1024
+
+    def test_entry_is_immutable(self):
+        """LokiCacheEntry should be frozen (immutable)."""
+        entry = LokiCacheEntry(
+            file_path="/tmp/test.json",
+            created_at=time.time(),
+            result_count=5,
+            file_size=1024,
+        )
+        with pytest.raises(AttributeError):
+            entry.file_path = "/tmp/other.json"
+
+
+class TestLokiRedisBackendMocked:
+    """Tests for LokiRedisBackend with mocked Redis."""
+
+    @pytest.fixture
+    def mock_redis_module(self):
+        """Create a mock redis module."""
+        mock_redis_client = MagicMock()
+        mock_redis_mod = MagicMock()
+        mock_redis_mod.Redis.from_url.return_value = mock_redis_client
+        return mock_redis_mod, mock_redis_client
+
+    def test_backend_initialization(self, mock_redis_module):
+        """Backend should initialize with Redis connection."""
+        mock_mod, mock_client = mock_redis_module
+
+        with patch.dict('sys.modules', {'redis': mock_mod}):
+            backend = LokiRedisBackend("redis://localhost:6379")
+
+            mock_mod.Redis.from_url.assert_called_once()
+            assert backend.hits == 0
+            assert backend.misses == 0
+            assert backend.sets == 0
+
+    def test_ping_success(self, mock_redis_module):
+        """Ping should return True when Redis is available."""
+        mock_mod, mock_client = mock_redis_module
+        mock_client.ping.return_value = True
+
+        with patch.dict('sys.modules', {'redis': mock_mod}):
+            backend = LokiRedisBackend("redis://localhost:6379")
+            assert backend.ping() is True
+
+    def test_ping_failure(self, mock_redis_module):
+        """Ping should return False when Redis fails."""
+        mock_mod, mock_client = mock_redis_module
+        mock_client.ping.side_effect = Exception("Connection refused")
+
+        with patch.dict('sys.modules', {'redis': mock_mod}):
+            backend = LokiRedisBackend("redis://localhost:6379")
+            assert backend.ping() is False
+
+    def test_get_miss(self, mock_redis_module):
+        """Get should return None and record miss when key not found."""
+        mock_mod, mock_client = mock_redis_module
+        mock_client.get.return_value = None
+
+        with patch.dict('sys.modules', {'redis': mock_mod}):
+            backend = LokiRedisBackend("redis://localhost:6379")
+            result = backend.get("nonexistent_key")
+
+            assert result is None
+            assert backend.misses == 1
+
+    def test_get_hit(self, mock_redis_module):
+        """Get should return entry and record hit when key found."""
+        mock_mod, mock_client = mock_redis_module
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            f.write('{}')
+            temp_path = f.name
+
+        try:
+            # Use forward slashes for JSON to avoid escaping issues on Windows
+            temp_path_json = temp_path.replace('\\', '/')
+            cached_data = f'{{"file_path": "{temp_path_json}", "created_at": 1234567890, "result_count": 5, "file_size": 1024}}'
+            mock_client.get.return_value = cached_data
+
+            with patch.dict('sys.modules', {'redis': mock_mod}):
+                backend = LokiRedisBackend("redis://localhost:6379")
+                result = backend.get("test_key")
+
+                assert result is not None
+                assert result.result_count == 5
+                assert backend.hits == 1
+        finally:
+            os.unlink(temp_path)
+
+    def test_get_removes_entry_if_file_missing(self, mock_redis_module):
+        """Get should remove entry and return None if cached file doesn't exist."""
+        mock_mod, mock_client = mock_redis_module
+        cached_data = '{"file_path": "/nonexistent/path/test.json", "created_at": 1234567890, "result_count": 5, "file_size": 1024}'
+        mock_client.get.return_value = cached_data
+
+        with patch.dict('sys.modules', {'redis': mock_mod}):
+            backend = LokiRedisBackend("redis://localhost:6379")
+            result = backend.get("test_key")
+
+            assert result is None
+            mock_client.delete.assert_called_once()  # Should delete the stale entry
+            assert backend.misses == 1
+
+    def test_set_stores_entry(self, mock_redis_module):
+        """Set should store entry in Redis with TTL."""
+        mock_mod, mock_client = mock_redis_module
+
+        with patch.dict('sys.modules', {'redis': mock_mod}):
+            backend = LokiRedisBackend("redis://localhost:6379")
+            result = backend.set(
+                "test_key",
+                "/tmp/test.json",
+                result_count=10,
+                file_size=2048,
+                ttl_seconds=3600,
+            )
+
+            assert result is True
+            mock_client.set.assert_called_once()
+            assert backend.sets == 1
+
+    def test_delete_removes_entry(self, mock_redis_module):
+        """Delete should remove entry from Redis."""
+        mock_mod, mock_client = mock_redis_module
+        mock_client.delete.return_value = 1
+
+        with patch.dict('sys.modules', {'redis': mock_mod}):
+            backend = LokiRedisBackend("redis://localhost:6379")
+            result = backend.delete("test_key")
+
+            assert result is True
+            mock_client.delete.assert_called_once()
+            assert backend.deletes == 1
+
+    def test_stats_returns_metrics(self, mock_redis_module):
+        """Stats should return all metrics."""
+        mock_mod, mock_client = mock_redis_module
+        mock_client.get.return_value = None
+
+        with patch.dict('sys.modules', {'redis': mock_mod}):
+            backend = LokiRedisBackend("redis://localhost:6379")
+            backend.get("key1")  # miss
+            backend.get("key2")  # miss
+
+            stats = backend.stats()
+
+            assert stats["hits"] == 0
+            assert stats["misses"] == 2
+            assert stats["hit_rate_percent"] == 0.0
+
+
+class TestLokiCacheL2:
+    """Tests for LokiCacheL2 manager."""
+
+    def test_disabled_by_default(self):
+        """L2 cache should be disabled when LOKI_CACHE_REDIS_ENABLED is False."""
+        with patch("app.services.loki_redis_cache.settings") as mock_settings:
+            mock_settings.LOKI_CACHE_REDIS_ENABLED = False
+            mock_settings.LOKI_CACHE_REDIS_URL = None
+            mock_settings.LLM_CACHE_REDIS_URL = None
+
+            l2 = LokiCacheL2()
+            assert l2.is_enabled is False
+
+    def test_stats_when_disabled(self):
+        """Stats should show disabled state when L2 is not enabled."""
+        with patch("app.services.loki_redis_cache.settings") as mock_settings:
+            mock_settings.LOKI_CACHE_REDIS_ENABLED = False
+            mock_settings.LOKI_CACHE_REDIS_URL = None
+            mock_settings.LLM_CACHE_REDIS_URL = None
+
+            l2 = LokiCacheL2()
+            stats = l2.stats()
+
+            assert stats["enabled"] is False
+            assert stats["connected"] is False
+            assert stats["backend_stats"] is None
+
+    def test_get_returns_none_when_disabled(self):
+        """Get should return None when L2 is disabled."""
+        with patch("app.services.loki_redis_cache.settings") as mock_settings:
+            mock_settings.LOKI_CACHE_REDIS_ENABLED = False
+            mock_settings.LOKI_CACHE_REDIS_URL = None
+            mock_settings.LLM_CACHE_REDIS_URL = None
+
+            l2 = LokiCacheL2()
+            result = l2.get("any_key")
+
+            assert result is None
+
+    def test_set_returns_false_when_disabled(self):
+        """Set should return False when L2 is disabled."""
+        with patch("app.services.loki_redis_cache.settings") as mock_settings:
+            mock_settings.LOKI_CACHE_REDIS_ENABLED = False
+            mock_settings.LOKI_CACHE_REDIS_URL = None
+            mock_settings.LLM_CACHE_REDIS_URL = None
+
+            l2 = LokiCacheL2()
+            result = l2.set("key", "/tmp/file.json", ttl_seconds=3600)
+
+            assert result is False
+
+
+class TestL2CacheIntegration:
+    """Integration tests for L2 cache with download_logs_cached."""
+
+    def setup_method(self):
+        """Reset metrics and clear caches before each test."""
+        reset_loki_cache_metrics()
+        cache_manager.invalidate("loki")
+        cache_manager.invalidate("loki_trace")
+
+    @patch("app.tools.loki.loki_query_builder.subprocess.run")
+    @patch("app.tools.loki.loki_query_builder.get_loki_cache_l2")
+    def test_l2_hit_populates_l1(self, mock_get_l2, mock_run):
+        """L2 cache hit should populate L1 cache."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_key = _get_loki_cache_key(
+                filters={"service_namespace": "test"},
+                date_str="2025-12-17",
+                end_date_str="2025-12-18",
+            )
+
+            # Create a cached file
+            cached_file = Path(tmpdir) / f"loki_{cache_key}.json"
+            cached_file.write_text('{"data": {"result": [{"stream": {}}]}}')
+
+            # Mock L2 cache to return the entry
+            mock_l2 = MagicMock()
+            mock_l2.get.return_value = LokiCacheEntry(
+                file_path=str(cached_file),
+                created_at=time.time(),
+                result_count=1,
+                file_size=100,
+            )
+            mock_get_l2.return_value = mock_l2
+
+            with patch("app.tools.loki.loki_query_builder.LOKI_CACHE_DIR", Path(tmpdir)):
+                result = download_logs_cached(
+                    filters={"service_namespace": "test"},
+                    date_str="2025-12-17",
+                    end_date_str="2025-12-18",
+                )
+
+                # Should return the cached file
+                assert result == str(cached_file)
+
+                # Should NOT call subprocess (no download)
+                mock_run.assert_not_called()
+
+                # L1 cache should now have the entry
+                loki_cache = cache_manager.get_cache("loki")
+                l1_cached = loki_cache.get(cache_key)
+                assert l1_cached == str(cached_file)
+
+    @patch("app.tools.loki.loki_query_builder.subprocess.run")
+    @patch("app.tools.loki.loki_query_builder.get_loki_cache_l2")
+    def test_download_stores_in_both_l1_and_l2(self, mock_get_l2, mock_run):
+        """Download should store in both L1 and L2 caches."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_key = _get_loki_cache_key(
+                filters={"service_namespace": "test"},
+                date_str="2025-12-17",
+                end_date_str="2025-12-18",
+            )
+
+            # Mock L2 cache
+            mock_l2 = MagicMock()
+            mock_l2.get.return_value = None  # L2 miss
+            mock_l2.set.return_value = True  # L2 set succeeds
+            mock_get_l2.return_value = mock_l2
+
+            with patch("app.tools.loki.loki_query_builder.LOKI_CACHE_DIR", Path(tmpdir)):
+                # Pre-create a non-empty result file
+                result_file = Path(tmpdir) / f"loki_{cache_key}.json"
+                result_file.write_text('{"status":"success","data":{"result":[{"stream":{}}]}}')
+
+                result = download_logs_cached(
+                    filters={"service_namespace": "test"},
+                    date_str="2025-12-17",
+                    end_date_str="2025-12-18",
+                )
+
+                # Should have stored in L2
+                mock_l2.set.assert_called_once()
+                call_args = mock_l2.set.call_args
+                assert call_args[0][0] == cache_key  # cache key
+                assert cache_key in call_args[0][1]  # file path contains cache key

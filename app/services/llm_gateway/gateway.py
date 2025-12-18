@@ -218,12 +218,17 @@ class _ThreadSingleFlight:
 
 
 class _RedisBackend:
-    def __init__(self, redis_url: str):
+    def __init__(self, redis_url: str, *, socket_connect_timeout_s: float = 1.0, socket_timeout_s: float = 1.0):
         try:
             import redis  # type: ignore
         except Exception as e:  # pragma: no cover
             raise RuntimeError("redis package not installed") from e
-        self._redis = redis.Redis.from_url(redis_url, decode_responses=False)
+        self._redis = redis.Redis.from_url(
+            redis_url,
+            decode_responses=False,
+            socket_connect_timeout=float(socket_connect_timeout_s),
+            socket_timeout=float(socket_timeout_s),
+        )
 
         self.hits = 0
         self.misses = 0
@@ -275,6 +280,7 @@ class LLMCacheGateway:
         l1_ttl_seconds: int,
         redis_url: Optional[str],
         l2_enabled: bool,
+        l2_auto_enable: bool = True,
         lock_ttl_ms: int = 30_000,
         lock_wait_ms: int = 2_000,
     ):
@@ -287,11 +293,15 @@ class LLMCacheGateway:
         self.sf = _ThreadSingleFlight()
 
         self.l2: Optional[_RedisBackend] = None
-        if l2_enabled and redis_url:
-            try:
-                self.l2 = _RedisBackend(redis_url)
-            except Exception:
-                self.l2 = None
+        self._redis_url = redis_url
+        self._l2_enabled_flag = bool(l2_enabled)
+        self._l2_auto_enable = bool(l2_auto_enable)
+        self._l2_lock = threading.Lock()
+        self._l2_last_error: Optional[str] = None
+        self._l2_last_checked_s: Optional[float] = None
+
+        if (self._l2_enabled_flag or self._l2_auto_enable) and self._redis_url:
+            self._ensure_l2()
 
         self.lock_ttl_ms = lock_ttl_ms
         self.lock_wait_ms = lock_wait_ms
@@ -316,6 +326,7 @@ class LLMCacheGateway:
 
         redis_url = getattr(settings, "LLM_CACHE_REDIS_URL", None)
         l2_enabled = bool(getattr(settings, "LLM_CACHE_L2_ENABLED", False))
+        l2_auto_enable = bool(getattr(settings, "LLM_CACHE_L2_AUTO_ENABLE", True))
         return LLMCacheGateway(
             enabled=enabled,
             gateway_version=gateway_version,
@@ -325,7 +336,30 @@ class LLMCacheGateway:
             l1_ttl_seconds=l1_ttl_seconds,
             redis_url=redis_url,
             l2_enabled=l2_enabled,
+            l2_auto_enable=l2_auto_enable,
         )
+
+    def _ensure_l2(self) -> None:
+        if not self._redis_url:
+            return
+        if not (self._l2_enabled_flag or self._l2_auto_enable):
+            return
+        if self.l2 is not None:
+            return
+        with self._l2_lock:
+            if self.l2 is not None:
+                return
+            self._l2_last_checked_s = _now_s()
+            try:
+                backend = _RedisBackend(self._redis_url, socket_connect_timeout_s=0.5, socket_timeout_s=0.5)
+                if not backend.ping():
+                    self._l2_last_error = "redis ping failed"
+                    return
+                self.l2 = backend
+                self._l2_last_error = None
+            except Exception as e:
+                self._l2_last_error = str(e)
+                return
 
     def _encode_envelope(self, value: Any) -> bytes:
         envelope = {"created_at": _now_s(), "value": value}
@@ -373,6 +407,8 @@ class LLMCacheGateway:
             prompt_version=self.prompt_version,
         )
         key_prefix = key.split(":")[-1][:12]
+
+        self._ensure_l2()
 
         if not pol.no_cache:
             raw = self.l1.get(key)
@@ -455,6 +491,11 @@ class LLMCacheGateway:
             "namespace": self.namespace,
             "gateway_version": self.gateway_version,
             "prompt_version": self.prompt_version,
+            "l2_configured": bool(self._redis_url),
+            "l2_enabled_flag": bool(self._l2_enabled_flag),
+            "l2_auto_enable": bool(self._l2_auto_enable),
+            "l2_last_error": self._l2_last_error,
+            "l2_last_checked_s": self._l2_last_checked_s,
             "calls": self.calls,
             "bypasses": self.bypasses,
             "misses": self.misses,
@@ -487,8 +528,9 @@ class LLMCacheGateway:
         self.l1.clear()
 
     def ping_l2(self) -> dict[str, Any]:
+        self._ensure_l2()
         if self.l2 is None:
-            return {"enabled": False}
+            return {"enabled": False, "configured": bool(self._redis_url), "error": self._l2_last_error}
         try:
             ok = self.l2.ping()
             return {"enabled": True, "ok": ok}
@@ -507,4 +549,3 @@ def get_llm_cache_gateway() -> LLMCacheGateway:
             if _gateway_singleton is None:
                 _gateway_singleton = LLMCacheGateway.from_settings()
     return _gateway_singleton
-

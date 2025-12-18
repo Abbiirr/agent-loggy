@@ -135,6 +135,7 @@ All cache settings load via `app/config.py`:
 - `LLM_CACHE_L1_TTL_SECONDS` (default `60`)
 - `LLM_CACHE_L2_ENABLED` (default `false`)
 - `LLM_CACHE_REDIS_URL` (default empty/none)
+- `LLM_CACHE_L2_AUTO_ENABLE` (default `true`; enables L2 automatically when Redis is reachable)
 - `LLM_GATEWAY_VERSION` + `PROMPT_VERSION` (both default `v1`)
 
 Dependency note:

@@ -11,8 +11,11 @@ agent-loggy is a Python FastAPI backend for automated log analysis and verificat
 ### Development
 ```bash
 uv sync                                           # Install dependencies
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload  # Run dev server
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload  # Dev server (hot reload, single worker)
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4  # Production (multi-worker, concurrent)
 ```
+
+**Concurrency Note:** The server uses `starlette.concurrency.run_in_threadpool` to offload blocking LLM/IO operations. Default is 4 workers for concurrent request handling. Set `DEV_MODE=true` for hot reload during development (single worker). Hot reload and workers are mutually exclusive.
 
 ### Testing
 ```bash

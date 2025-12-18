@@ -14,6 +14,7 @@ from app.schemas.ChatRequest import ChatRequest
 from app.schemas.ChatResponse import ChatResponse
 from app.orchestrator import Orchestrator
 from app.dependencies import get_orchestrator, get_active_sessions
+from app.services.llm_gateway.gateway import CachePolicy
 
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,8 @@ async def chat(
         "project": req.project,
         "env": req.env,
         "domain": req.domain,
-        "status": "pending"
+        "cache": req.cache.model_dump() if req.cache is not None else None,
+        "status": "pending",
     }
 
     # Return the stream URL
@@ -64,16 +66,25 @@ async def chat_stream(
     project = session["project"]
     domain = session["domain"]
     env = session["env"]
+    cache_policy = CachePolicy.from_dict(session.get("cache"))
 
     async def event_generator():
+        sent_done = False
+        saw_error = False
         try:
             # Mark session as active
             active_sessions[session_id]["status"] = "streaming"
 
             # Stream each orchestrator step
-            async for step, payload in orchestrator.analyze_stream(prompt, project, env, domain):
+            async for step, payload in orchestrator.analyze_stream(
+                prompt, project, env, domain, cache_policy=cache_policy
+            ):
                 # Only yield if we have valid data
                 if step and payload is not None:
+                    if step == "done":
+                        sent_done = True
+                    if step.lower() == "error":
+                        saw_error = True
                     try:
                         # Ensure payload is properly serializable
                         if isinstance(payload, (dict, list)):
@@ -92,8 +103,10 @@ async def chat_stream(
                         error_event = f"event: error\ndata: {json.dumps({'error': f'Serialization error: {str(e)}'})}\n\n"
                         yield error_event
 
-            # Send completion event
-            yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
+            # If orchestrator didn't send done, close the stream explicitly.
+            if not sent_done:
+                status = "error" if saw_error else "complete"
+                yield f"event: done\ndata: {json.dumps({'status': status})}\n\n"
 
         except Exception as e:
             logger.error(f"Error in chat stream: {e}")

@@ -32,3 +32,5 @@ comprehensive_analysis/
 app/evals/
 
 site/
+
+app/loki_cache/

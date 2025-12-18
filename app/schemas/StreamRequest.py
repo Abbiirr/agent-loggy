@@ -1,4 +1,7 @@
 from pydantic import BaseModel, Field
+from typing import Optional
+
+from app.schemas.CachePolicy import CachePolicyModel
 
 class StreamRequest(BaseModel):
     text: str = Field(
@@ -21,4 +24,8 @@ class StreamRequest(BaseModel):
     domain : str = Field(
         default="General",
         description="The domain or context of the request (e.g., transactions, user management)."
+    )
+    cache: Optional[CachePolicyModel] = Field(
+        default=None,
+        description="Optional LLM cache controls (LiteLLM-like: no_cache/no_store/ttl/s_maxage).",
     )

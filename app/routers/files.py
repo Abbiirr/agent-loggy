@@ -33,3 +33,23 @@ def download_file(filename: str = Query(..., description="Name of the file to do
         filename=filename,
         media_type="application/octet-stream",
     )
+
+
+@router.get("/content/")
+def get_file_content(filename: str = Query(..., description="Name of the file to read")):
+    """
+    Get the text content of an analysis file.
+    """
+    analysis_dir = settings.ANALYSIS_DIR
+
+    # Prevent directory traversal
+    safe_path = os.path.normpath(os.path.join(analysis_dir, filename))
+    if not safe_path.startswith(os.path.normpath(analysis_dir)):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not os.path.isfile(safe_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    with open(safe_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    return {"filename": filename, "content": content}

@@ -8,20 +8,23 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
 from ollama import Client
+from starlette.concurrency import run_in_threadpool
 from app.agents.parameter_agent import ParametersAgent
+from app.agents.planning_agent import PlanningAgent
 from app.agents.file_searcher import FileSearcher
 from app.tools.log_searcher import LogSearcher
 from app.tools.full_log_finder import FullLogFinder
 from app.agents.analyze_agent import AnalyzeAgent
 from app.agents.verify_agent import RelevanceAnalyzerAgent
 from app.tools.loki.loki_trace_id_extractor import gather_logs_for_trace_ids, extract_trace_ids
-from app.tools.loki.loki_query_builder import download_logs
+from app.tools.loki.loki_query_builder import download_logs_cached
 from datetime import datetime, timedelta
 from dateutil import parser as date_parser
 from app.tools.loki.loki_log_report_generator import generate_comprehensive_report, parse_loki_json
 import csv
 
 from app.services.project_service import is_file_based, is_loki_based
+from app.services.llm_gateway.gateway import CachePolicy
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,8 @@ class PipelineContext:
     compiled: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     report_files: List[str] = field(default_factory=list)
     master_report: str = ""
+    cache_policy: Optional[CachePolicy] = None
+    cache_diagnostics: Dict[str, Any] = field(default_factory=dict)
 
 
 class Orchestrator:
@@ -55,6 +60,7 @@ class Orchestrator:
 
     def __init__(self, client: Client, model: str, log_base_dir: str = "./data"):
         self.param_agent = ParametersAgent(client, model)
+        self.planning_agent = PlanningAgent(client, model)
         self.file_searcher = FileSearcher(Path(log_base_dir), client, model)
         self.log_searcher = LogSearcher(context=2)
         self.full_log_finder = FullLogFinder()
@@ -63,45 +69,65 @@ class Orchestrator:
 
     # ==================== MAIN PIPELINE ====================
 
-    async def analyze_stream(self, text: str, project: str, env: str, domain: str) -> Dict[str, Any]:
+    async def analyze_stream(
+        self,
+        text: str,
+        project: str,
+        env: str,
+        domain: str,
+        cache_policy: Optional[CachePolicy] = None,
+    ) -> Dict[str, Any]:
         """Main analysis pipeline - orchestrates all steps."""
-        ctx = PipelineContext(text=text, project=project, env=env, domain=domain)
+        ctx = PipelineContext(text=text, project=project, env=env, domain=domain, cache_policy=cache_policy)
 
-        # Load configuration
-        ctx.negate_keys = self._load_negate_keys()
+        # Load configuration (run in threadpool to avoid blocking event loop)
+        ctx.negate_keys = await run_in_threadpool(self._load_negate_keys)
 
         # STEP 1: Parameter extraction
-        ctx.params = self._step1_extract_parameters(ctx.text)
-        yield "Extracted Parameters", {"parameters": ctx.params}
-        await asyncio.sleep(0)
+        ctx.params, diag = await run_in_threadpool(self._step1_extract_parameters, ctx.text, ctx.cache_policy)
+        ctx.cache_diagnostics["parameter_extraction"] = diag.__dict__
+        logger.info(f"Parameter extraction cache: {diag.status} (key: {diag.key_prefix[:12] if diag.key_prefix else 'N/A'}...)")
+        yield "Extracted Parameters", {"parameters": ctx.params, "cache": ctx.cache_diagnostics["parameter_extraction"]}
+
+        # STEP 1b: Plan the pipeline steps (internal use only)
+        plan = await run_in_threadpool(
+            self.planning_agent.run,
+            text=ctx.text,
+            project=ctx.project,
+            env=ctx.env,
+            domain=ctx.domain,
+            extracted_params=ctx.params,
+            cache_policy=ctx.cache_policy,
+        )
+        logger.debug("Generated plan: %s", json.dumps(plan, indent=2))
+
+        if isinstance(plan, dict) and plan.get("can_proceed") is False:
+            yield "Need Clarification", {"questions": plan.get("blocking_questions", [])}
+            yield "done", {"status": "needs_input"}
+            return
 
         # STEP 2: Log search (file-based or Loki)
-        step2_result = self._step2_search_logs(ctx)
+        step2_result = await run_in_threadpool(self._step2_search_logs, ctx)
         if step2_result.get("error"):
             yield "Error", {"error": step2_result["error"]}
             return
         yield step2_result["event"], step2_result["data"]
-        await asyncio.sleep(0)
 
         # STEP 3: Trace ID collection
-        step3_result = self._step3_collect_trace_ids(ctx)
+        step3_result = await run_in_threadpool(self._step3_collect_trace_ids, ctx)
         yield step3_result["event"], step3_result["data"]
-        await asyncio.sleep(0)
 
         # STEP 4: Compile logs
         step4_result = await self._step4_compile_logs(ctx)
         yield step4_result["event"], step4_result["data"]
-        await asyncio.sleep(0)
 
         # STEP 5: Analysis & report generation
-        step5_result = self._step5_analyze_and_generate_reports(ctx)
+        step5_result = await run_in_threadpool(self._step5_analyze_and_generate_reports, ctx)
         yield step5_result["event"], step5_result["data"]
-        await asyncio.sleep(0)
 
         # STEP 6: Verification
-        step6_result = self._step6_verify(ctx)
+        step6_result = await run_in_threadpool(self._step6_verify, ctx)
         yield step6_result["event"], step6_result["data"]
-        await asyncio.sleep(0)
 
         # Done
         logger.info("Analysis complete.")
@@ -127,12 +153,14 @@ class Orchestrator:
             logger.error(f"Error reading negate rules: {e}")
         return negate_keys
 
-    def _step1_extract_parameters(self, text: str) -> Dict[str, Any]:
+    def _step1_extract_parameters(
+        self, text: str, cache_policy: Optional[CachePolicy] = None
+    ) -> tuple[Dict[str, Any], Any]:
         """STEP 1: Extract parameters from user query using LLM."""
         logger.info("STEP 1: Parameter extraction…")
-        params = self.param_agent.run(text)
+        params, diag = self.param_agent.run(text, cache_policy=cache_policy)
         logger.info("Extracted parameters: %s", json.dumps(params, indent=2))
-        return params
+        return params, diag
 
     def _step2_search_logs(self, ctx: PipelineContext) -> Dict[str, Any]:
         """STEP 2: Search logs - dispatches to file-based or Loki-based search."""
@@ -174,17 +202,24 @@ class Orchestrator:
         ctx.end_date_str = end_dt.date().isoformat()
         logger.debug("Loki search date range: %s to %s", ctx.search_date, ctx.end_date_str)
 
-        ctx.unique_filename = f"app/loki_logs/{ctx.project}{ctx.env}_{ctx.search_date}_{uuid.uuid4().hex}.json"
+        # Ensure loki_logs directory exists
+        loki_logs_dir = Path("app/loki_logs")
+        loki_logs_dir.mkdir(parents=True, exist_ok=True)
+
         pipeline = [f'!= "{term}"' for term in ctx.negate_keys]
 
-        download_logs(
+        ctx.unique_filename = download_logs_cached(
             filters={"service_namespace": ctx.project.lower()},
             search=query_keys,
             date_str=ctx.search_date,
             end_date_str=ctx.end_date_str,
-            output=ctx.unique_filename,
             pipeline=pipeline
         )
+
+        if not ctx.unique_filename:
+            logger.error("Failed to download logs from Loki")
+            return {"error": "Failed to download logs from Loki"}
+
         logger.info(f"Downloaded logs to {ctx.unique_filename}")
         return {"event": "Downloaded logs in file", "data": {}}
 
@@ -219,7 +254,7 @@ class Orchestrator:
         """STEP 4: Compile full logs - dispatches to file-based or Loki-based."""
         logger.info("STEP 4: Compiling full logs…")
         if is_file_based(ctx.project):
-            return self._step4_compile_logs_file_based(ctx)
+            return await run_in_threadpool(self._step4_compile_logs_file_based, ctx)
         elif is_loki_based(ctx.project):
             return await self._step4_compile_logs_loki(ctx)
         return {"event": "Compiled Request Traces", "data": {"traces_compiled": 0}}
@@ -254,7 +289,7 @@ class Orchestrator:
 
     async def _step4_compile_logs_loki(self, ctx: PipelineContext) -> Dict[str, Any]:
         """STEP 4 (Loki): Gather logs for each trace ID from Loki."""
-        ctx.log_files = await asyncio.to_thread(
+        ctx.log_files = await run_in_threadpool(
             gather_logs_for_trace_ids,
             filters={"service_namespace": ctx.project.lower()},
             trace_ids=ctx.unique_ids,
@@ -280,7 +315,8 @@ class Orchestrator:
             search_results={"unique_trace_ids": ctx.unique_ids},
             trace_data={"all_trace_data": ctx.compiled},
             parameters=ctx.params,
-            output_prefix="banking_analysis"
+            output_prefix="banking_analysis",
+            cache_policy=ctx.cache_policy,
         )
         ctx.report_files = result.get("comprehensive_files_created", [])
         ctx.master_report = result.get("master_summary_file", "")
@@ -294,7 +330,8 @@ class Orchestrator:
         result = self.analyze_agent.analyze_log_files(
             log_file_paths=ctx.log_files,
             dispute_text=ctx.text,
-            search_params=ctx.params
+            search_params=ctx.params,
+            cache_policy=ctx.cache_policy,
         )
         ctx.report_files = result["individual_reports"]
         ctx.master_report = result["master_report"]
@@ -310,7 +347,8 @@ class Orchestrator:
         results = self.verify_agent.analyze_batch_relevance(
             original_text=ctx.text,
             parameters=ctx.params,
-            trace_files=ctx.report_files
+            trace_files=ctx.report_files,
+            cache_policy=ctx.cache_policy,
         )
 
         output_file = self.verify_agent.export_results_to_file(results)

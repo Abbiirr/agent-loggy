@@ -14,6 +14,12 @@ from dateutil.relativedelta import relativedelta
 from ollama import Client
 
 from app.config import settings
+from app.services.llm_gateway.gateway import (
+    CacheDiagnostics,
+    CachePolicy,
+    CacheableValue,
+    get_llm_cache_gateway,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,12 +150,12 @@ class ParametersAgent:
 
     # ---------------------- Public API ----------------------
 
-    def run(self, text: str) -> Dict:
+    def run(self, text: str, cache_policy: Optional[CachePolicy] = None) -> tuple[Dict, CacheDiagnostics]:
         # Check Ollama availability but don't crash the app
         if not is_ollama_running():
             logger.error("Ollama server is not available. Using fallback extraction.")
             # Return fallback instead of crashing
-            return self._fallback(text)
+            return self._fallback(text), CacheDiagnostics(status="BYPASS", key_prefix="")
 
         try:
             system_prompt = self._build_system_prompt()
@@ -157,32 +163,45 @@ class ParametersAgent:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": text.strip()},
             ]
-
-            # Add timeout to prevent hanging
             timeout = _get_config("ollama", "timeout", 30)
-            resp = self.client.chat(
+            gateway = get_llm_cache_gateway()
+
+            def compute() -> CacheableValue:
+                resp = self.client.chat(
+                    model=self.model,
+                    messages=messages,
+                    options={"timeout": timeout},
+                )
+                raw = resp["message"]["content"]
+                logger.debug("Raw LLM response (length=%d): %s", len(raw), raw)
+                try:
+                    json_blob = self._extract_json_block(raw)
+                    logger.debug("Extracted JSON blob: %s", json_blob)
+                    params_local = json.loads(json_blob)
+                    logger.debug("Parsed params from LLM: %s", params_local)
+                    return CacheableValue(value=params_local, cacheable=True)
+                except Exception as e:
+                    logger.error(
+                        "LLM JSON parse error (%s). Raw response was: %s",
+                        e,
+                        raw[:500] if raw else "<empty>",
+                    )
+                    logger.info("Falling back to regex-only extraction.")
+                    return CacheableValue(value=self._fallback(text), cacheable=False)
+
+            params, diag = gateway.cached(
+                cache_type="parameter_extraction",
                 model=self.model,
                 messages=messages,
-                options={"timeout": timeout}
+                options={"timeout": timeout},
+                default_ttl_seconds=7200,
+                policy=cache_policy,
+                compute=compute,
             )
-            raw = resp["message"]["content"]
-            logger.debug("Raw LLM response (length=%d): %s", len(raw), raw)
-
-            # 1) Extract JSON
-            try:
-                json_blob = self._extract_json_block(raw)
-                logger.debug("Extracted JSON blob: %s", json_blob)
-                params = json.loads(json_blob)
-                logger.debug("Parsed params from LLM: %s", params)
-            except Exception as e:
-                logger.error("LLM JSON parse error (%s). Raw response was: %s", e, raw[:500] if raw else "<empty>")
-                logger.info("Falling back to regex-only extraction.")
-                params = self._fallback(text)
-                logger.debug("Fallback params: %s", params)
 
         except Exception as e:
             logger.error(f"Ollama API call failed: {e}. Using fallback extraction.")
-            return self._fallback(text)
+            return self._fallback(text), CacheDiagnostics(status="BYPASS", key_prefix="")
 
         # 2) Normalize time_frame → ISO YYYY-MM-DD or None
         tf = params.get("time_frame", None)
@@ -213,7 +232,7 @@ class ParametersAgent:
             "time_frame": params["time_frame"],
             "domain": params["domain"],
             "query_keys": params["query_keys"],
-        }
+        }, diag
 
     # ---------------------- Prompt ----------------------
 

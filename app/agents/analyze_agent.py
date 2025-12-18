@@ -8,6 +8,7 @@ import re, json
 from datetime import datetime as dt
 
 from app.config import settings
+from app.services.llm_gateway.gateway import CachePolicy, CacheableValue, get_llm_cache_gateway
 from .report_writer import ReportWriter
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,8 @@ class AnalyzeAgent:
             search_results: Dict,
             trace_data: Dict,
             parameters: Dict,
-            output_prefix: str = None
+            output_prefix: str = None,
+            cache_policy: Optional[CachePolicy] = None,
     ) -> Dict:
         """
         Create comprehensive files for each trace containing both analysis and full logs.
@@ -78,7 +80,9 @@ class AnalyzeAgent:
             return self._create_empty_result()
 
         # Step 1: Perform overall quality assessment
-        overall_quality = self._assess_overall_quality(original_context, search_results, trace_data, parameters)
+        overall_quality = self._assess_overall_quality(
+            original_context, search_results, trace_data, parameters, cache_policy=cache_policy
+        )
 
         # Step 2: Create comprehensive file for each trace
         created_files = []
@@ -89,7 +93,7 @@ class AnalyzeAgent:
 
             # Analyze this specific trace
             trace_analysis = self._analyze_single_trace(
-                trace_id, comprehensive_trace_data, original_context, parameters
+                trace_id, comprehensive_trace_data, original_context, parameters, cache_policy=cache_policy
             )
 
             # Create comprehensive file using report writer
@@ -136,7 +140,8 @@ class AnalyzeAgent:
             self,
             log_file_paths: List[str],
             dispute_text: str,
-            search_params: Dict[str, Any] = None
+            search_params: Dict[str, Any] = None,
+            cache_policy: Optional[CachePolicy] = None,
     ) -> Dict[str, Any]:
         """
         Analyze log files and generate individual trace reports plus a master summary.
@@ -182,7 +187,7 @@ class AnalyzeAgent:
             try:
                 # Generate analysis for this trace
                 trace_analysis = self._analyze_single_trace_from_entries(
-                    trace_id, trace_entries, dispute_text, search_params
+                    trace_id, trace_entries, dispute_text, search_params, cache_policy=cache_policy
                 )
                 trace_analyses[trace_id] = trace_analysis
 
@@ -229,7 +234,8 @@ class AnalyzeAgent:
             trace_id: str,
             trace_data: Dict,
             original_context: str,
-            parameters: Dict
+            parameters: Dict,
+            cache_policy: Optional[CachePolicy] = None,
     ) -> Dict:
         """Analyze a single trace for relevance and findings by inspecting actual log content."""
 
@@ -309,31 +315,36 @@ class AnalyzeAgent:
         system_prompt = _get_prompt_from_db("trace_analysis_system") or \
             "You are a senior banking systems analyst with expertise in transaction processing, log analysis, and dispute resolution. Analyze the provided log data thoroughly to understand exactly what happened during this transaction. Focus on technical details and evidence-based conclusions."
 
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+
         try:
-            response = self.client.chat(
+            gateway = get_llm_cache_gateway()
+
+            def compute() -> CacheableValue:
+                response = self.client.chat(model=self.model, messages=messages)
+                raw_response = response["message"]["content"].strip()
+                analysis_local = self._safe_parse_json(raw_response, self._default_trace_analysis)
+                return CacheableValue(value=analysis_local, cacheable=True)
+
+            analysis, _diag = gateway.cached(
+                cache_type="trace_analysis",
                 model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
+                messages=messages,
+                options=None,
+                default_ttl_seconds=14400,
+                policy=cache_policy,
+                compute=compute,
             )
 
-            raw_response = response["message"]["content"].strip()
-            analysis = self._safe_parse_json(raw_response, self._default_trace_analysis)
-
-            # Add computed fields
-            analysis['trace_id'] = trace_id
-            analysis['total_entries'] = trace_data.get('total_entries', 0)
-            analysis['source_files_count'] = len(trace_data.get('source_files', []))
-            analysis['log_sample_size'] = len(sample_messages)
-            analysis['timeline_events_analyzed'] = len(timeline_steps)
-
+            analysis = dict(analysis or {})
+            analysis["trace_id"] = trace_id
+            analysis["total_entries"] = trace_data.get("total_entries", 0)
+            analysis["source_files_count"] = len(trace_data.get("source_files", []))
+            analysis["log_sample_size"] = len(sample_messages)
+            analysis["timeline_events_analyzed"] = len(timeline_steps)
             return analysis
 
         except Exception as e:
@@ -345,7 +356,8 @@ class AnalyzeAgent:
             trace_id: str,
             trace_entries: List[Dict[str, Any]],
             dispute_text: str,
-            search_params: Dict[str, Any]
+            search_params: Dict[str, Any],
+            cache_policy: Optional[CachePolicy] = None,
     ) -> Dict[str, Any]:
         """Generate AI analysis for a single trace from trace entries."""
 
@@ -389,36 +401,47 @@ Analyze this trace and provide your expert assessment in JSON format:
         entries_system_prompt = _get_prompt_from_db("entries_analysis_system") or \
             "You are a senior banking systems analyst. Provide thorough, evidence-based analysis."
 
+        messages = [
+            {"role": "system", "content": entries_system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+
         try:
-            response = self.client.chat(
+            gateway = get_llm_cache_gateway()
+
+            def compute() -> CacheableValue:
+                response = self.client.chat(model=self.model, messages=messages)
+                raw_response = response["message"]["content"].strip()
+                analysis_local = self._safe_parse_json(raw_response, self._default_trace_analysis)
+                return CacheableValue(value=analysis_local, cacheable=True)
+
+            analysis, _diag = gateway.cached(
+                cache_type="trace_entries_analysis",
                 model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": entries_system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
+                messages=messages,
+                options=None,
+                default_ttl_seconds=14400,
+                policy=cache_policy,
+                compute=compute,
             )
 
-            raw_response = response["message"]["content"].strip()
-            analysis = self._safe_parse_json(raw_response, self._default_trace_analysis)
-
-            # Add computed fields
-            analysis['trace_id'] = trace_id
-            analysis['total_entries'] = len(trace_entries)
-
+            analysis = dict(analysis or {})
+            analysis["trace_id"] = trace_id
+            analysis["total_entries"] = len(trace_entries)
             return analysis
 
         except Exception as e:
             logger.error(f"Error analyzing trace {trace_id}: {e}")
             return self._default_trace_analysis(trace_id)
 
-    def _assess_overall_quality(self, original_context: str, search_results: Dict, trace_data: Dict,
-                                parameters: Dict) -> Dict:
+    def _assess_overall_quality(
+        self,
+        original_context: str,
+        search_results: Dict,
+        trace_data: Dict,
+        parameters: Dict,
+        cache_policy: Optional[CachePolicy] = None,
+    ) -> Dict:
         """Assess overall quality of the search and analysis."""
 
         prompt = f"""
@@ -447,17 +470,30 @@ JSON format:
         quality_system_prompt = _get_prompt_from_db("quality_assessment_system") or \
             "Banking analyst. JSON only."
 
-        try:
-            response = self.client.chat(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": quality_system_prompt},
-                    {"role": "user", "content": prompt}
-                ]
-            )
+        messages = [
+            {"role": "system", "content": quality_system_prompt},
+            {"role": "user", "content": prompt}
+        ]
 
-            raw_response = response["message"]["content"].strip()
-            return self._safe_parse_json(raw_response, self._default_quality_assessment)
+        try:
+            gateway = get_llm_cache_gateway()
+
+            def compute() -> CacheableValue:
+                response = self.client.chat(model=self.model, messages=messages)
+                raw_response = response["message"]["content"].strip()
+                result_local = self._safe_parse_json(raw_response, self._default_quality_assessment)
+                return CacheableValue(value=result_local, cacheable=True)
+
+            result, _diag = gateway.cached(
+                cache_type="quality_assessment",
+                model=self.model,
+                messages=messages,
+                options=None,
+                default_ttl_seconds=7200,
+                policy=cache_policy,
+                compute=compute,
+            )
+            return result
 
         except Exception as e:
             logger.error(f"Error in overall quality assessment: {e}")

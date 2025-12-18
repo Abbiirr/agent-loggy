@@ -12,6 +12,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.schemas.StreamRequest import StreamRequest
 from app.orchestrator import Orchestrator
 from app.dependencies import get_orchestrator
+from app.services.llm_gateway.gateway import CachePolicy
 
 
 logger = logging.getLogger(__name__)
@@ -28,10 +29,13 @@ async def stream_analysis(
     Stream analysis endpoint with SSE formatting.
     """
     text = req.text
+    cache_policy = CachePolicy.from_dict(req.cache.model_dump() if req.cache is not None else None)
 
     async def event_generator():
         # Stream each orchestrator step
-        async for step, payload in orchestrator.analyze_stream(text, req.project, req.env, req.domain):
+        async for step, payload in orchestrator.analyze_stream(
+            text, req.project, req.env, req.domain, cache_policy=cache_policy
+        ):
             # Only yield if we have valid data
             if step and payload is not None:
                 try:

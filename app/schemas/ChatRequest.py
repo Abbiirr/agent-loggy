@@ -1,4 +1,7 @@
 from pydantic import BaseModel
+from typing import Optional
+
+from app.schemas.CachePolicy import CachePolicyModel
 
 
 class ChatRequest(BaseModel):
@@ -6,3 +9,4 @@ class ChatRequest(BaseModel):
     project: str
     env: str
     domain: str
+    cache: Optional[CachePolicyModel] = None

@@ -16,6 +16,20 @@ class Settings(BaseSettings):
     USE_DB_SETTINGS: bool = False
     USE_DB_PROJECTS: bool = False
 
+    # --- LLM cache / gateway ---
+    LLM_CACHE_ENABLED: bool = True
+    LLM_CACHE_NAMESPACE: str = "default"
+    LLM_CACHE_L1_MAX_ENTRIES: int = 10_000
+    LLM_CACHE_L1_TTL_SECONDS: int = 60
+
+    # Enable shared (cross-worker/pod) cache with Redis (requires `redis` package)
+    LLM_CACHE_L2_ENABLED: bool = False
+    LLM_CACHE_REDIS_URL: Optional[str] = None
+
+    # Explicit invalidation knobs (bumped when prompts/gateway behavior changes)
+    LLM_GATEWAY_VERSION: str = "v1"
+    PROMPT_VERSION: str = "v1"
+
     # ─── Tell Pydantic-Settings how to load .env ─────────────
     model_config = SettingsConfigDict(
         env_file=".env",

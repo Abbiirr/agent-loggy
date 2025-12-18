@@ -10,13 +10,37 @@ services:
     environment:
       # adjust to your app's env needs:
       - DATABASE_URL=postgresql+psycopg://agent:agent_pass@postgres:5432/agent_loggy
+      # Optional: enable Redis L2 cache
+      # - LLM_CACHE_L2_ENABLED=true
+      # - LLM_CACHE_REDIS_URL=redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - agentnet
     develop:               # enables auto rebuild/sync with: docker compose up --watch
       watch:
         - action: rebuild
           path: .
+
+  redis:
+    image: redis:7-alpine
+    container_name: agent_loggy_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agentnet
 
   postgres:
     image: postgres:latest
@@ -41,6 +65,7 @@ services:
 
 volumes:
   db_data:
+  redis_data:
 
 networks:
   agentnet:

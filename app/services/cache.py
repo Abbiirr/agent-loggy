@@ -155,10 +155,19 @@ class CacheManager:
 
     # Default TTLs in seconds
     DEFAULT_TTLS = {
-        "prompts": 300,      # 5 minutes
-        "settings": 600,     # 10 minutes
-        "projects": 600,     # 10 minutes
-        "context_rules": 900 # 15 minutes
+        "prompts": 300,                    # 5 minutes
+        "settings": 600,                   # 10 minutes
+        "projects": 600,                   # 10 minutes
+        "context_rules": 900,              # 15 minutes
+        # Loki/HTTP request caching
+        "loki": 14400,                     # 4 hours - log queries don't change often
+        "loki_trace": 21600,               # 6 hours - individual trace logs
+        # LLM response caching (extended TTLs)
+        "llm_parameter_extraction": 7200,  # 2 hours - same query = same params
+        "llm_trace_analysis": 14400,       # 4 hours - same logs = same analysis
+        "llm_trace_entries_analysis": 14400,  # 4 hours
+        "llm_quality_assessment": 7200,    # 2 hours
+        "llm_relevance_analysis": 14400,   # 4 hours
     }
 
     _instance: Optional["CacheManager"] = None

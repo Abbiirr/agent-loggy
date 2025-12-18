@@ -1,7 +1,7 @@
 import json
 import os
 from typing import List, Set, Union, Dict
-from app.tools.loki.loki_query_builder import download_logs
+from app.tools.loki.loki_query_builder import download_logs_cached
 
 def extract_trace_ids(json_file: str) -> List[str]:
     """
@@ -31,43 +31,45 @@ def gather_logs_for_trace_ids(
     output_dir: str = 'app/trace_logs'
 ) -> List[str]:
     """
-    For each trace_id, download its logs into a separate JSON file under output_dir.
+    For each trace_id, download its logs using cached downloads.
     Returns list of output file paths.
     """
-    os.makedirs(output_dir, exist_ok=True)
     files: List[str] = []
     for tid in trace_ids:
-        filename = os.path.join(output_dir, f"trace_{tid}.json")
-        download_logs(filters=filters,  # ensure service_namespace forward for each call
-                      date_str=date_str,
-                      time_str=time_str,
-                      end_date_str=end_date_str,
-                      end_time_str=end_time_str,
-                      trace_id=tid,
-                      output=filename)
-        files.append(filename)
+        cached_path = download_logs_cached(
+            filters=filters,
+            date_str=date_str,
+            time_str=time_str,
+            end_date_str=end_date_str,
+            end_time_str=end_time_str,
+            trace_id=tid
+        )
+        if cached_path:
+            files.append(cached_path)
     return files
 
 if __name__ == '__main__':
-    # Download logs to file
-    download_logs(
+    # Download logs to file (using cached version)
+    log_file = download_logs_cached(
         filters={'service_namespace': 'ncc'},
         search='merchant',
         date_str='2025-07-15',
         end_date_str='2025-07-16',
-        output='loki-ncc-merchant-15-16.json'
     )
 
-    # Extract unique trace IDs
-    trace_ids = extract_trace_ids('loki-ncc-merchant-15-16.json')
-    print("Found trace IDs:", trace_ids)
+    if log_file:
+        # Extract unique trace IDs
+        trace_ids = extract_trace_ids(log_file)
+        print("Found trace IDs:", trace_ids)
 
-    # Step 2: gather logs for each trace_id
-    files = gather_logs_for_trace_ids(
-        filters={'service_namespace': 'ncc'},
-        trace_ids=trace_ids,
-        date_str='2025-07-15',
-        end_date_str='2025-07-16'
-    )
-    print("Downloaded trace logs:", files)
+        # Step 2: gather logs for each trace_id (also cached)
+        files = gather_logs_for_trace_ids(
+            filters={'service_namespace': 'ncc'},
+            trace_ids=trace_ids,
+            date_str='2025-07-15',
+            end_date_str='2025-07-16'
+        )
+        print("Downloaded trace logs:", files)
+    else:
+        print("Failed to download initial logs")
 

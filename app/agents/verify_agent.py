@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 import os
 from app.config import settings
+from app.services.llm_gateway.gateway import CachePolicy, CacheableValue, get_llm_cache_gateway
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +228,8 @@ class RelevanceAnalyzerAgent:
             original_text: str,
             parameters: Dict[str, Any],
             trace_files: List[str],
-            batch_size: int = 10
+            batch_size: int = 10,
+            cache_policy: Optional[CachePolicy] = None,
     ) -> Dict[str, Any]:
         """
         Analyze relevance of multiple trace files in batches.
@@ -261,7 +263,7 @@ class RelevanceAnalyzerAgent:
             for file_path in batch:
                 try:
                     result = self.analyze_single_file_relevance(
-                        original_text, parameters, file_path, relevant_rules
+                        original_text, parameters, file_path, relevant_rules, cache_policy=cache_policy
                     )
                     batch_results.append(result)
 
@@ -330,7 +332,8 @@ class RelevanceAnalyzerAgent:
             original_text: str,
             parameters: Dict[str, Any],
             file_path: str,
-            relevant_rules: List[ContextRule] = None
+            relevant_rules: List[ContextRule] = None,
+            cache_policy: Optional[CachePolicy] = None,
     ) -> RelevanceResult:
         """
         Analyze relevance of a single trace file.
@@ -382,7 +385,8 @@ class RelevanceAnalyzerAgent:
             parameters,
             trace_info,
             trace_content,
-            relevant_rules
+            relevant_rules,
+            cache_policy=cache_policy,
         )
 
         # Calculate processing time
@@ -416,7 +420,8 @@ class RelevanceAnalyzerAgent:
             parameters: Dict[str, Any],
             trace_info: Dict[str, Any],
             full_content: str,
-            relevant_rules: List[ContextRule] = None
+            relevant_rules: List[ContextRule] = None,
+            cache_policy: Optional[CachePolicy] = None,
     ) -> Dict[str, Any]:
         """
         Core relevance analysis using LLM enhanced with RAG context.
@@ -455,12 +460,11 @@ EXTRACTED PARAMETERS:
 
 {rag_context}
 
-TRACE INFORMATION:
-- Trace ID: {trace_info.get('trace_id', 'unknown')}
-- Timestamp: {trace_info.get('timestamp', 'N/A')}
-- Total Log Entries: {trace_info.get('total_entries', 0)}
-- Services Involved: {', '.join(service_names[:5])}
-- Key Operations: {', '.join(operations[:10])}
+ TRACE INFORMATION:
+ - Trace ID: {trace_info.get('trace_id', 'unknown')}
+ - Total Log Entries: {trace_info.get('total_entries', 0)}
+ - Services Involved: {', '.join(service_names[:5])}
+ - Key Operations: {', '.join(operations[:10])}
 
 SAMPLE LOG MESSAGES:
 {chr(10).join(f"• {msg}" for msg in log_samples[:10])}
@@ -500,25 +504,30 @@ Provide analysis in JSON format:
         relevance_system_prompt = _get_prompt_from_db("relevance_analysis_system") or \
             "You are an expert at analyzing system logs and determining relevance to user queries. Use provided context rules to make better relevance decisions. Be precise and thorough in your analysis."
 
+        messages = [
+            {"role": "system", "content": relevance_system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+
         try:
-            response = self.client.chat(
+            gateway = get_llm_cache_gateway()
+
+            def compute() -> CacheableValue:
+                response = self.client.chat(model=self.model, messages=messages)
+                raw_response = response["message"]["content"].strip()
+                analysis_local = self._safe_parse_json(raw_response)
+                analysis_local = self._validate_analysis_result(analysis_local)
+                return CacheableValue(value=analysis_local, cacheable=True)
+
+            analysis, _diag = gateway.cached(
+                cache_type="relevance_analysis",
                 model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": relevance_system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
+                messages=messages,
+                options=None,
+                default_ttl_seconds=14400,
+                policy=cache_policy,
+                compute=compute,
             )
-
-            raw_response = response["message"]["content"].strip()
-            analysis = self._safe_parse_json(raw_response)
-
-            # Ensure all required fields are present
             return self._validate_analysis_result(analysis)
 
         except Exception as e:

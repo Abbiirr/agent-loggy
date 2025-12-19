@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Any
 import gzip
 import lzma
 
-from ollama import Client
+from app.services.llm_providers import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +27,11 @@ class FileSearcher:
     PREFIX_ORDER = ["error", "trace", "integration", "application"]
     DOMAIN_KEYWORDS = ["NPSB", "BEFTN"]
 
-    def __init__(self, base_dir: Path, llm_client: Client, model: str):
+    def __init__(self, base_dir: Path, llm_client: LLMProvider, model: str):
         """
         Args:
             base_dir: Path to directory containing log files
-            llm_client: Ollama Client instance
+            llm_client: LLM provider instance
             model: name of the LLM model to use for verification
         """
         self.base_dir = base_dir

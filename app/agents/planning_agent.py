@@ -5,16 +5,11 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import regex as re
-from ollama import Client
 
 from app.services.project_service import is_file_based, is_loki_based
+from app.services.llm_providers import LLMProvider
 from app.services.llm_gateway.gateway import CachePolicy, CacheableValue, get_llm_cache_gateway
 
-try:
-    from app.agents.parameter_agent import is_ollama_running
-except Exception:  # pragma: no cover
-    def is_ollama_running(*args: Any, **kwargs: Any) -> bool:  # type: ignore[no-redef]
-        return False
 
 
 logger = logging.getLogger(__name__)
@@ -34,7 +29,7 @@ class PlanningAgent:
     similar to how tool-based coding agents produce a step-by-step plan before acting.
     """
 
-    def __init__(self, client: Optional[Client], model: str):
+    def __init__(self, client: Optional[LLMProvider], model: str):
         self.client = client
         self.model = model
 
@@ -49,7 +44,7 @@ class PlanningAgent:
     ) -> Dict[str, Any]:
         extracted_params = extracted_params or {}
 
-        if not self.client or not is_ollama_running():
+        if not self.client or not self.client.is_available():
             return self._fallback(text, project, env, domain, extracted_params)
 
         try:

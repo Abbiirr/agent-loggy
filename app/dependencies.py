@@ -3,15 +3,13 @@
 Shared dependencies for FastAPI routes.
 """
 
-from ollama import Client
-
 from app.orchestrator import Orchestrator
-from app.config import settings
+from app.services.llm_providers import create_llm_provider
 
 
-# Create Ollama client and Orchestrator once
-client = Client(host=settings.OLLAMA_HOST)
-orchestrator = Orchestrator(client, model=settings.MODEL, log_base_dir="data")
+# Create LLM provider and Orchestrator once
+llm_provider, model = create_llm_provider()
+orchestrator = Orchestrator(llm_provider, model=model, log_base_dir="data")
 
 # Store active sessions (in production, use Redis or proper session management)
 active_sessions: dict = {}

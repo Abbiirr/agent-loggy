@@ -3,8 +3,8 @@
 import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
-from ollama import Client
 import re
+from app.services.llm_providers import LLMProvider
 import json
 import csv
 from datetime import datetime as dt
@@ -205,7 +205,7 @@ class RelevanceAnalyzerAgent:
     Enhanced with RAG-based context rules.
     """
 
-    def __init__(self, client: Client, model: str, output_dir: str = "relevance_analysis",
+    def __init__(self, client: LLMProvider, model: str, output_dir: str = "relevance_analysis",
                  context_file: str = "context_rules.csv"):
         self.client = client
         self.model = model

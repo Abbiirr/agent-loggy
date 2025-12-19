@@ -11,9 +11,8 @@ from typing import Dict, List, Optional
 import httpx
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
-from ollama import Client
-
 from app.config import settings
+from app.services.llm_providers import LLMProvider
 from app.services.llm_gateway.gateway import (
     CacheDiagnostics,
     CachePolicy,
@@ -143,7 +142,7 @@ class ParametersAgent:
     and then applies strict validation + deterministic date normalization.
     """
 
-    def __init__(self, client: Client, model: str):
+    def __init__(self, client: LLMProvider, model: str):
         self.client = client
         self.model = model
         logger.info("ParametersAgent using model: %s", model)
@@ -151,9 +150,9 @@ class ParametersAgent:
     # ---------------------- Public API ----------------------
 
     def run(self, text: str, cache_policy: Optional[CachePolicy] = None) -> tuple[Dict, CacheDiagnostics]:
-        # Check Ollama availability but don't crash the app
-        if not is_ollama_running():
-            logger.error("Ollama server is not available. Using fallback extraction.")
+        # Check LLM provider availability but don't crash the app
+        if not self.client.is_available():
+            logger.error(f"LLM provider '{self.client.provider_name}' is not available. Using fallback extraction.")
             # Return fallback instead of crashing
             return self._fallback(text), CacheDiagnostics(status="BYPASS", key_prefix="")
 
@@ -200,7 +199,7 @@ class ParametersAgent:
             )
 
         except Exception as e:
-            logger.error(f"Ollama API call failed: {e}. Using fallback extraction.")
+            logger.error(f"LLM API call failed: {e}. Using fallback extraction.")
             return self._fallback(text), CacheDiagnostics(status="BYPASS", key_prefix="")
 
         # 2) Normalize time_frame → ISO YYYY-MM-DD or None

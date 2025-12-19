@@ -3,8 +3,8 @@
 import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from ollama import Client
 import re, json
+from app.services.llm_providers import LLMProvider
 from datetime import datetime as dt
 
 from app.config import settings
@@ -39,7 +39,7 @@ class AnalyzeAgent:
     Report writing functionality has been separated to ReportWriter class.
     """
 
-    def __init__(self, client: Client, model: str, output_dir: str = "comprehensive_analysis"):
+    def __init__(self, client: LLMProvider, model: str, output_dir: str = "comprehensive_analysis"):
         self.client = client
         self.model = model
         self.output_dir = Path(output_dir)

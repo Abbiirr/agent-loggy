@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
-from ollama import Client
 from starlette.concurrency import run_in_threadpool
+from app.services.llm_providers import LLMProvider
 from app.agents.parameter_agent import ParametersAgent
 from app.agents.planning_agent import PlanningAgent
 from app.agents.file_searcher import FileSearcher
@@ -58,14 +58,14 @@ class Orchestrator:
     Refactored for clarity with each step as a separate method.
     """
 
-    def __init__(self, client: Client, model: str, log_base_dir: str = "./data"):
-        self.param_agent = ParametersAgent(client, model)
-        self.planning_agent = PlanningAgent(client, model)
-        self.file_searcher = FileSearcher(Path(log_base_dir), client, model)
+    def __init__(self, llm_provider: LLMProvider, model: str, log_base_dir: str = "./data"):
+        self.param_agent = ParametersAgent(llm_provider, model)
+        self.planning_agent = PlanningAgent(llm_provider, model)
+        self.file_searcher = FileSearcher(Path(log_base_dir), llm_provider, model)
         self.log_searcher = LogSearcher(context=2)
         self.full_log_finder = FullLogFinder()
-        self.analyze_agent = AnalyzeAgent(client, model, output_dir="app/comprehensive_analysis")
-        self.verify_agent = RelevanceAnalyzerAgent(client, model, output_dir="app/verification_reports")
+        self.analyze_agent = AnalyzeAgent(llm_provider, model, output_dir="app/comprehensive_analysis")
+        self.verify_agent = RelevanceAnalyzerAgent(llm_provider, model, output_dir="app/verification_reports")
 
     # ==================== MAIN PIPELINE ====================
 

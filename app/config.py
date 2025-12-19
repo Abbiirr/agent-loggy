@@ -11,13 +11,18 @@ class Settings(BaseSettings):
     ANALYSIS_DIR : str
     MODEL: str
 
+    # ─── LLM Provider Configuration ───────────────────────────
+    LLM_PROVIDER: str = "ollama"  # "ollama" | "openrouter"
+    OPENROUTER_API_KEY: Optional[str] = None
+    OPENROUTER_MODEL: Optional[str] = None  # If set, used instead of MODEL for OpenRouter
+
     # ─── Feature flags for gradual DB migration ──────────────
     USE_DB_PROMPTS: bool = False
     USE_DB_SETTINGS: bool = False
     USE_DB_PROJECTS: bool = False
 
     # --- LLM cache / gateway ---
-    LLM_CACHE_ENABLED: bool = True
+    LLM_CACHE_ENABLED: bool = False
     LLM_CACHE_NAMESPACE: str = "default"
     LLM_CACHE_L1_MAX_ENTRIES: int = 10_000
     LLM_CACHE_L1_TTL_SECONDS: int = 60

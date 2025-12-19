@@ -16,6 +16,7 @@ from fastapi import FastAPI
 
 from app.config import settings
 from app.db.session import init_database
+from app.services.llm_providers import create_llm_provider
 
 
 logger = logging.getLogger(__name__)
@@ -25,13 +26,18 @@ logger = logging.getLogger(__name__)
 THREAD_POOL_SIZE = int(os.getenv("THREAD_POOL_SIZE", "40"))
 
 
-async def is_ollama_running(host: str) -> bool:
-    """Check if Ollama server is running and accessible."""
+def check_llm_provider_available() -> tuple[bool, str]:
+    """Check if the configured LLM provider is available.
+
+    Returns:
+        Tuple of (is_available, provider_name)
+    """
     try:
-        r = httpx.get(f"{host}/", timeout=2.0)
-        return r.status_code == 200
-    except Exception:
-        return False
+        provider, model = create_llm_provider()
+        return provider.is_available(), provider.provider_name
+    except ValueError as e:
+        logger.error(f"Failed to create LLM provider: {e}")
+        return False, "unknown"
 
 
 @asynccontextmanager
@@ -48,10 +54,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     init_database()
 
-    if not await is_ollama_running(settings.OLLAMA_HOST):
-        logger.critical("Ollama not running; start with 'ollama serve'.")
-        sys.exit(1)
-    logger.info("Ollama is up and running")
+    # Check LLM provider availability
+    is_available, provider_name = check_llm_provider_available()
+    if not is_available:
+        logger.warning(f"LLM provider '{provider_name}' is not available - some features may not work")
+    else:
+        logger.info(f"LLM provider '{provider_name}' is ready")
 
     yield
 

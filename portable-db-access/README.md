@@ -31,16 +31,20 @@ $env:DB_READONLY_DSN="postgresql://readonly:REPLACE_ME@HOST:5432/your_db"
 psql "$env:DB_READONLY_DSN" -c "select now();"
 ```
 
-Note: PostgreSQL’s default `public` schema privileges often allow `CREATE` to `PUBLIC`. If that’s true in your DB, “read-only” roles can still create objects unless you revoke `CREATE` from `PUBLIC` or use a dedicated schema.
+Note: PostgreSQL's default `public` schema privileges often allow `CREATE` to `PUBLIC`. If that's true in your DB, "read-only" roles can still create objects unless you revoke `CREATE` from `PUBLIC` or use a dedicated schema.
 
 ## 2) Recommended: MCP via DBHub (read-only)
 
-1. Put your DSN in an env var (don’t commit it):
+1. Put your DSN in an env var (don't commit it). For portability across machines/shells, prefer creating `portable-db-access/.env`. Example for `10.112.30.10:5432/agent_loggy`:
 
 ```powershell
+$env:DB_READONLY_DSN="postgresql://readonly:REPLACE_ME_PASSWORD@10.112.30.10:5432/agent_loggy"
+# or copy the template and edit:
 Copy-Item portable-db-access/.env.example portable-db-access/.env
 # then edit portable-db-access/.env
 ```
+
+Tip: if you're running commands from another folder, use the full path to `portable-db-access`.
 
 2. Add the MCP server:
 
@@ -49,11 +53,18 @@ Copy-Item portable-db-access/.env.example portable-db-access/.env
 - Codex CLI (Windows): `portable-db-access/mcp/codex_mcp_add_windows.ps1`
 - Codex CLI (macOS/Linux/WSL): `portable-db-access/mcp/codex_mcp_add_unix.sh`
 
-These scripts expect `DB_READONLY_DSN` to be set in your environment.
+These scripts read `DB_READONLY_DSN` at runtime and also fall back to `portable-db-access/.env` if present. The default add scripts do not persist the DSN into MCP config.
 They run DBHub via a small runner script which generates a temporary `dbhub.toml` enabling read-only mode (DBHub removed the `--readonly` flag).
 
 Windows runner: `portable-db-access/mcp/dbhub_stdio_windows.ps1`  
 Unix runner: `portable-db-access/mcp/dbhub_stdio_unix.sh`
+
+If the Claude CLI complains about an unknown option, use the updated Windows script (the command is passed as a single string after `--`) or run directly:
+
+```powershell
+$env:DB_READONLY_DSN="postgresql://readonly:YOUR_PASSWORD@10.112.30.10:5432/agent_loggy"
+claude mcp add --transport stdio db -- "powershell -ExecutionPolicy Bypass -File portable-db-access/mcp/dbhub_stdio_windows.ps1 -MaxRows 1000"
+```
 
 ## 3) Reduce accidental secret exposure (Codex)
 

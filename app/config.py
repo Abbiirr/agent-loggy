@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     LOKI_CACHE_TTL_SECONDS: int = 14400  # 4 hours for general queries
     LOKI_CACHE_TRACE_TTL_SECONDS: int = 21600  # 6 hours for trace-specific queries
 
+    # ─── Knowledge Base / RAG Configuration ─────────────────
+    KB_EMBEDDING_MODEL: str = "nomic-embed-text"  # Ollama embedding model
+    KB_EMBEDDING_DIMENSIONS: int = 768
+    KB_EMBEDDING_BATCH_SIZE: int = 32
+    KB_EMBEDDING_CACHE_ENABLED: bool = True
+    KB_EMBEDDING_CACHE_TTL_SECONDS: int = 86400  # 24 hours
+    KB_CODEBASE_PATH: str = "codebase"  # Path to source code to index
+    KB_RETRIEVAL_TOP_K: int = 10  # Default number of results to retrieve
+    KB_RETRIEVAL_MIN_SIMILARITY: float = 0.5  # Minimum cosine similarity threshold
+
     # ─── Tell Pydantic-Settings how to load .env ─────────────
     model_config = SettingsConfigDict(
         env_file=".env",

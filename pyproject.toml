@@ -19,6 +19,7 @@ dependencies = [
     "psycopg2-binary",
     "python-dotenv",
     "sqlalchemy",
+    "pgvector>=0.4.2",
 ]
 
 [project.optional-dependencies]

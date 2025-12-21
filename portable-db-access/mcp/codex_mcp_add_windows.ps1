@@ -6,6 +6,17 @@ param(
 )
 
 if (-not $Dsn) {
+  $envPath = Join-Path $PSScriptRoot "..\\.env"
+  if (Test-Path $envPath) {
+    $dsnLine = Get-Content $envPath | Where-Object { $_ -match '^\s*DB_READONLY_DSN\s*=' } | Select-Object -First 1
+    if ($dsnLine) {
+      $Dsn = $dsnLine.Split("=", 2)[1].Trim().Trim('"')
+      $env:DB_READONLY_DSN = $Dsn
+    }
+  }
+}
+
+if (-not $Dsn) {
   Write-Error "Missing DB_READONLY_DSN. Set it (or pass -Dsn)."
   exit 1
 }

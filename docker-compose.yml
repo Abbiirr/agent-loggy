@@ -43,7 +43,7 @@ services:
       - agentnet
 
   postgres:
-    image: postgres:latest
+    image: pgvector/pgvector:pg17
     container_name: agent_loggy_db
     restart: unless-stopped
     environment:

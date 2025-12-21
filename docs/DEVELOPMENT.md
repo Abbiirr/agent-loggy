@@ -28,9 +28,23 @@ Create a `.env` file in the project root:
 DATABASE_URL=postgresql://user:password@localhost:5432/agent_loggy
 DATABASE_SCHEMA=agent_loggy
 
-# Ollama
+# LLM Provider (ollama or openrouter)
+LLM_PROVIDER=ollama
 OLLAMA_HOST=http://localhost:11434
 MODEL=llama3
+
+# OpenRouter (if using openrouter provider)
+# OPENROUTER_API_KEY=your-api-key
+# OPENROUTER_MODEL=anthropic/claude-3-haiku
+
+# LLM Caching (optional)
+LLM_CACHE_ENABLED=false
+# LLM_CACHE_L2_ENABLED=false
+# LLM_CACHE_REDIS_URL=redis://localhost:6379
+
+# Loki Caching (optional)
+LOKI_CACHE_ENABLED=true
+# LOKI_CACHE_REDIS_ENABLED=false
 
 # Feature flags (optional)
 USE_DB_PROMPTS=false
@@ -68,8 +82,14 @@ ollama serve
 ### 5. Run Development Server
 
 ```bash
+# Development mode with hot reload (single worker)
+DEV_MODE=true uv run python -m app.main
+
+# Or using uvicorn directly
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+**Concurrency Note:** The server uses `starlette.concurrency.run_in_threadpool` to offload blocking LLM/IO operations. In production, it runs with `(2 * CPU cores) + 1` workers. Set `DEV_MODE=true` for hot reload during development (single worker). Hot reload and multiple workers are mutually exclusive.
 
 The API is now available at `http://localhost:8000`.
 
@@ -81,11 +101,31 @@ The API is now available at `http://localhost:8000`.
 agent-loggy/
 ├── app/
 │   ├── agents/           # LLM-powered agents
+│   │   ├── parameter_agent.py
+│   │   ├── planning_agent.py
+│   │   ├── analyze_agent.py
+│   │   └── verify_agent.py
 │   ├── db/               # Database layer (SQLAlchemy)
 │   ├── models/           # ORM models
 │   ├── routers/          # FastAPI route handlers
+│   │   ├── chat.py
+│   │   ├── analysis.py
+│   │   ├── files.py
+│   │   └── cache_admin.py
 │   ├── schemas/          # Pydantic request/response models
 │   ├── services/         # Business logic services
+│   │   ├── llm_gateway/  # LLM response caching
+│   │   │   └── gateway.py  # L1/L2 cache with stampede protection
+│   │   ├── llm_providers/  # Provider abstraction
+│   │   │   ├── base.py     # Provider interface
+│   │   │   ├── ollama_provider.py
+│   │   │   ├── openrouter_provider.py
+│   │   │   └── factory.py
+│   │   ├── cache.py
+│   │   ├── loki_redis_cache.py
+│   │   ├── prompt_service.py
+│   │   ├── config_service.py
+│   │   └── project_service.py
 │   ├── tools/            # Utility tools and integrations
 │   │   └── loki/         # Loki log backend integration
 │   ├── tests/            # Test suite
@@ -171,10 +211,10 @@ uv add --dev <package>
 
 ```python
 # app/agents/my_agent.py
-from ollama import Client
+from app.services.llm_providers.base import LLMProvider
 
 class MyAgent:
-    def __init__(self, client: Client, model: str):
+    def __init__(self, client: LLMProvider, model: str):
         self.client = client
         self.model = model
 
@@ -276,6 +316,78 @@ class MyService:
 
 2. Export in `app/services/__init__.py`.
 
+### Adding a New LLM Provider
+
+1. Create provider in `app/services/llm_providers/`:
+
+```python
+# app/services/llm_providers/my_provider.py
+from .base import LLMProvider
+
+class MyProvider(LLMProvider):
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+
+    def chat(
+        self,
+        messages: list[dict],
+        model: str,
+        timeout: int = 30,
+        **kwargs
+    ) -> dict:
+        # Make API call to your provider
+        response = self._call_api(messages, model)
+        return {
+            "message": {"content": response.text, "role": "assistant"},
+            "model": model
+        }
+```
+
+2. Register in factory (`app/services/llm_providers/factory.py`):
+
+```python
+elif provider_name == "myprovider":
+    provider = MyProvider(api_key=settings.MY_API_KEY)
+    return provider, settings.MODEL
+```
+
+3. Add config to `app/config.py`:
+
+```python
+MY_API_KEY: Optional[str] = None
+```
+
+### Using the LLM Cache Gateway
+
+Agents use the cache gateway for response caching:
+
+```python
+from app.services.llm_gateway.gateway import (
+    get_llm_cache_gateway,
+    CachePolicy,
+    CacheableValue,
+)
+
+def my_cached_call(prompt: str) -> dict:
+    gateway = get_llm_cache_gateway()
+
+    result, diagnostics = gateway.cached(
+        cache_type="my_agent",
+        model=self.model,
+        messages=[{"role": "user", "content": prompt}],
+        options=None,
+        default_ttl_seconds=7200,  # 2 hours
+        policy=CachePolicy(),
+        compute=lambda: CacheableValue(
+            value=self._actual_llm_call(prompt),
+            cacheable=True
+        ),
+    )
+
+    # diagnostics.status: HIT_L1, HIT_L2, MISS, BYPASS
+    return result
+```
+
 ---
 
 ## Docker Development
@@ -346,9 +458,14 @@ logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
 ```
 app/tests/
 ├── __init__.py
-├── test_cache.py           # Cache service tests
+├── test_cache.py               # TTLCache, CacheManager, @cached decorator
+├── test_llm_gateway.py         # LLM cache gateway (L1/L2, stampede protection)
+├── test_loki_cache.py          # Loki Redis cache tests
+├── test_planning_agent.py      # Planning agent tests
 └── test_trace_id_extractor.py  # Trace ID extraction tests
 ```
+
+Test files are located under `app/tests/`. Run with `uv run pytest`.
 
 ### Writing Tests
 

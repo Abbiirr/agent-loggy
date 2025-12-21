@@ -36,3 +36,5 @@ site/
 app/loki_cache/
 
 nul
+
+bash.exe.stackdump

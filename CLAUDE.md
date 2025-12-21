@@ -52,11 +52,12 @@ docker compose up --watch                 # Auto-rebuild on changes
 ### Core Flow (Orchestrator Pipeline)
 The `app/orchestrator.py` `Orchestrator.analyze_stream()` method is the main pipeline:
 1. **Parameter Extraction** - `ParametersAgent` extracts time_frame, domain, query_keys from natural language
-2. **File/Log Search** - Either local file search (MMBL/UCB projects) or Loki query (NCC/ABBL projects)
-3. **Trace ID Collection** - Extracts unique trace IDs from matching log entries
-4. **Log Compilation** - Gathers all log entries per trace ID
-5. **Analysis** - `AnalyzeAgent` generates comprehensive analysis files
-6. **Verification** - `RelevanceAnalyzerAgent` validates findings and generates reports
+2. **Planning** - `PlanningAgent` produces execution plan and may ask clarifying questions
+3. **File/Log Search** - Either local file search (MMBL/UCB projects) or Loki query (NCC/ABBL projects)
+4. **Trace ID Collection** - Extracts unique trace IDs from matching log entries
+5. **Log Compilation** - Gathers all log entries per trace ID
+6. **Analysis** - `AnalyzeAgent` generates comprehensive analysis files
+7. **Verification** - `RelevanceAnalyzerAgent` validates findings and generates reports
 
 ### Project-Based Branching
 The orchestrator handles two project types differently:
@@ -65,7 +66,7 @@ The orchestrator handles two project types differently:
 
 ### Agent Pattern
 All agents in `app/agents/` follow a similar pattern:
-- Constructor takes `Client` (Ollama) and `model` name
+- Constructor takes `LLMProvider` (Ollama, OpenRouter, etc.) and `model` name
 - Use system prompts to guide LLM behavior
 - Return structured data (typically dicts)
 
@@ -73,25 +74,57 @@ All agents in `app/agents/` follow a similar pattern:
 The API uses SSE (Server-Sent Events) for real-time progress updates:
 - `POST /api/chat` creates a session and returns a stream URL
 - `GET /api/chat/stream/{session_id}` streams orchestrator events
-- Events: `Extracted Parameters`, `Found relevant files`, `Found trace id(s)`, `Compiled Request Traces`, `Compiled Summary`, `Verification Results`, `done`
+- Events: `Extracted Parameters`, `Planned Steps`, `Need Clarification`, `Found relevant files`, `Found trace id(s)`, `Compiled Request Traces`, `Compiled Summary`, `Verification Results`, `done`
 
 ### Key Components
 | Component | Location | Purpose |
 |-----------|----------|---------|
 | Orchestrator | `app/orchestrator.py` | Main analysis pipeline |
 | ParametersAgent | `app/agents/parameter_agent.py` | NLP parameter extraction |
+| PlanningAgent | `app/agents/planning_agent.py` | Pipeline planning and clarification |
 | AnalyzeAgent | `app/agents/analyze_agent.py` | Log analysis and report generation |
 | RelevanceAnalyzerAgent | `app/agents/verify_agent.py` | Verification and relevance scoring |
+| LLM Gateway | `app/services/llm_gateway/gateway.py` | L1/L2 caching with stampede protection |
+| LLM Providers | `app/services/llm_providers/` | Provider abstraction (Ollama, OpenRouter) |
+| Loki Redis Cache | `app/services/loki_redis_cache.py` | Loki query caching with Redis |
 | Loki tools | `app/tools/loki/` | Loki log backend integration |
+| Health Check | `GET /health` | Non-blocking liveness probe |
 
 ## Configuration
 
 Environment variables (via `.env` file, validated by `app/config.py`):
+
+### Core Settings
 - `DATABASE_URL` - PostgreSQL connection string
 - `DATABASE_SCHEMA` - Database schema name
+- `ANALYSIS_DIR` - Output directory for analysis files
+
+### LLM Provider Settings
+- `LLM_PROVIDER` - Provider to use: `ollama` (default) or `openrouter`
 - `OLLAMA_HOST` - Ollama server URL (e.g., `http://localhost:11434`)
 - `MODEL` - LLM model name (e.g., `llama3`)
-- `ANALYSIS_DIR` - Output directory for analysis files
+- `OPENROUTER_API_KEY` - API key for OpenRouter (required if using OpenRouter)
+- `OPENROUTER_MODEL` - Model override for OpenRouter (optional)
+
+### LLM Caching Settings
+- `LLM_CACHE_ENABLED` - Enable LLM response caching (default: `false`)
+- `LLM_CACHE_NAMESPACE` - Cache namespace (default: `default`)
+- `LLM_CACHE_L1_MAX_ENTRIES` - Max L1 in-memory cache entries (default: `10000`)
+- `LLM_CACHE_L1_TTL_SECONDS` - L1 cache TTL (default: `60`)
+- `LLM_CACHE_L2_ENABLED` - Enable Redis L2 cache (default: `false`)
+- `LLM_CACHE_REDIS_URL` - Redis connection URL for L2 cache
+- `LLM_GATEWAY_VERSION` / `PROMPT_VERSION` - Bump to invalidate cache
+
+### Loki Cache Settings
+- `LOKI_CACHE_ENABLED` - Enable Loki query caching (default: `true`)
+- `LOKI_CACHE_REDIS_ENABLED` - Enable Redis persistence for Loki cache
+- `LOKI_CACHE_TTL_SECONDS` - General query TTL (default: `14400` / 4 hours)
+- `LOKI_CACHE_TRACE_TTL_SECONDS` - Trace query TTL (default: `21600` / 6 hours)
+
+### Feature Flags
+- `USE_DB_PROMPTS` - Use prompts from database (default: `false`)
+- `USE_DB_SETTINGS` - Use settings from database (default: `false`)
+- `USE_DB_PROJECTS` - Use project config from database (default: `false`)
 
 ## Output Directories
 - `app/comprehensive_analysis/` - Generated analysis reports
@@ -100,7 +133,15 @@ Environment variables (via `.env` file, validated by `app/config.py`):
 
 ## Current Status
 
-Per `docs/specs.md`, the project is in active development with these priorities:
-- Tests are minimal (see `app/tests/`)
+The project is in active development. Key implemented features:
+- **LLM Provider Abstraction** - Supports Ollama and OpenRouter providers
+- **LLM Caching** - L1 (in-memory LRU+TTL) and L2 (Redis) with stampede protection
+- **Loki Caching** - Query result caching with optional Redis persistence
+- **Database Configuration** - Prompts, settings, and projects can be DB-backed (phases 1-4 complete)
+- **Planning Agent** - Pipeline planning with clarification questions
+
+In progress:
 - Session management is currently in-memory (migration to DB planned)
-- Persistence layer is partial (basic Alembic setup exists)
+- Context rules migration (phase 5) pending
+- Admin API endpoints (phase 6) pending
+- Tests are expanding (see `app/tests/`)

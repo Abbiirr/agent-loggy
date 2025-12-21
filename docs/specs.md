@@ -1,7 +1,7 @@
 # Log Analysis Chatbot / Trace Viewer Backend Specification (Living Document)
 
-Version: 0.4.0  
-Last Updated: 2025-09-14  
+Version: 0.5.0
+Last Updated: 2025-12-19
 Status Legend: ✅ Done | 🟡 In Progress | 🔴 Not Started | ❗ Blocking | ⚠ Risky / Needs Decision
 
 Purpose: Provide an authoritative snapshot of current state, target architecture, implementation roadmap, and verifiable acceptance criteria for the conversational log / trace analysis platform.
@@ -10,21 +10,32 @@ Purpose: Provide an authoritative snapshot of current state, target architecture
 ## 1. Project Snapshot (Current Reality)
 | Area | Present in Repo | Notes |
 |------|-----------------|-------|
-| Orchestrator | ✅ (app/orchestrator.py) | Hardcoded parameter dict (must remove) |
-| Agents | ✅ (parameter, analyze, verify, planning, report) | Stateless; no persistence hooks |
-| Streaming | ✅ (SSE via main/orchestrator flow) | No resume, no tokens, only coarse steps |
-| Config | ✅ (app/config.py) | No env validation / defaults enforcement |
-| Persistence Layer | ⚠ Partial (app/db/base.py) | No domain models / repositories |
-| Alembic | ✅ (initial revision) | Schema incomplete (no conversation/message/etc.) |
-| Schemas (Pydantic) | ✅ (app/schemas/*.py) | Limited to chat request/response; not aligned with planned models |
-| Tests | 🔴 (empty app/tests) | Framework absent |
-| Trace Reports | ✅ (app/comprehensive_analysis, verification_reports) | Generated artifacts not indexed |
-| Loki Log Assets | ✅ (app/loki_logs/*.json) | No retention / cleanup policy |
-| Context Rules CSV | ✅ (app/app_settings) | Not integrated via documented algorithm |
-| Multi-model Support | 🔴 | Only Ollama client used |
+| Orchestrator | ✅ (app/orchestrator.py) | Uses ProjectService for branching |
+| Agents | ✅ (parameter, planning, analyze, verify, report) | With DB-backed prompts support |
+| Streaming | ✅ (SSE via main/orchestrator flow) | Planning step, clarification support |
+| Config | ✅ (app/config.py) | Pydantic Settings with validation |
+| Persistence Layer | ✅ (app/db/, app/models/) | Prompts, Settings, Projects models |
+| Alembic | ✅ (4 migrations) | Schema for prompts, settings, projects |
+| Schemas (Pydantic) | ✅ (app/schemas/*.py) | Chat, Stream, CachePolicy schemas |
+| Tests | ✅ (app/tests/) | Cache, gateway, planning, Loki, trace ID tests |
+| Trace Reports | ✅ (app/comprehensive_analysis, verification_reports) | Generated artifacts |
+| Loki Log Assets | ✅ (app/loki_logs/*.json) | With caching layer |
+| Context Rules CSV | ✅ (app/app_settings) | Not yet migrated to DB |
+| LLM Provider Abstraction | ✅ (app/services/llm_providers/) | Ollama + OpenRouter providers |
+| LLM Caching | ✅ (app/services/llm_gateway/) | L1/L2 with stampede protection |
+| Loki Caching | ✅ (app/services/loki_redis_cache.py) | With optional Redis persistence |
+| Health Endpoint | ✅ (/health) | Non-blocking liveness probe |
+| Concurrency | ✅ (app/main.py) | Auto-scaling workers, DEV_MODE support |
 | UI-Specific State | 🔴 | No trace context or viewer state persistence |
 
-Critical Blocker: Hardcoded parameter extraction stub in orchestrator prevents real flow validation.
+Recent Progress:
+- LLM provider abstraction (Ollama, OpenRouter) with factory pattern
+- LLM response caching with L1 (in-memory) and L2 (Redis) layers, stampede protection
+- Loki query caching with separate TTLs for general and trace queries
+- Planning agent with clarification questions
+- Database-backed prompts, settings, projects (phases 1-4 complete)
+- Auto-scaling workers with DEV_MODE for development
+- Health check endpoint for liveness probes
 
 ---
 ## 2. High-Level Goals
@@ -39,18 +50,23 @@ Critical Blocker: Hardcoded parameter extraction stub in orchestrator prevents r
 ## 3. Status Matrix (Execution View)
 | Component | Current | Target | Status | Blocked By | Risk |
 |-----------|---------|--------|--------|-----------|------|
-| Parameter Extraction | Hardcoded dict | Agent-driven parse | ❗ | Remove stub | Low |
-| Conversation Persistence | None | conversations + messages tables | 🔴 | Models | Medium |
+| Parameter Extraction | Agent-driven | Agent-driven parse | ✅ | - | - |
+| DB-Backed Prompts | Implemented | DB versioning | ✅ | - | - |
+| DB-Backed Settings | Implemented | DB config | ✅ | - | - |
+| DB-Backed Projects | Implemented | DB project config | ✅ | - | - |
+| LLM Provider Abstraction | Ollama + OpenRouter | Multiple providers | ✅ | - | - |
+| LLM Response Caching | L1 + L2 | Caching layer | ✅ | - | - |
+| Loki Query Caching | Redis-backed | Cache layer | ✅ | - | - |
+| Planning Agent | Implemented | Pipeline planning | ✅ | - | - |
+| Conversation Persistence | None | conversations + messages | 🔴 | Models | Medium |
 | Sessions | In-memory | DB + optional Redis TTL | 🔴 | Models | Medium |
 | Trace Context | Not stored | trace_context table + API | 🔴 | Models | Medium |
 | Analysis Results | Files only | DB + hash dedupe | 🔴 | Models | Low |
-| Streaming Protocol | step/done | token/step/warning/error/done | 🔴 | None | Low |
-| Provider Abstraction | Direct Ollama | Strategy + adapters | 🔴 | Refactor orchestrator | Medium |
+| Streaming Protocol | step/plan/done | token/step/error/done | 🟡 | - | Low |
+| Context Rules DB | CSV files | Database tables | 🔴 | Phase 5 | Low |
+| Admin API | None | CRUD endpoints | 🔴 | Phase 6 | Low |
 | Quick Tools | Absent | Endpoints (extract, mask) | 🔴 | Trace context | Low |
-| Error Handling | Ad-hoc logging | Unified codes + mapping | 🔴 | Error module | Low |
-| Metrics | None | Basic counters/timers | 🔴 | Instrumentation | Low |
-| Tests | None | Unit + integration baseline | 🔴 | Harness | High |
-| Logging | print/logger mix | Structured + trace_id | 🔴 | Logger setup | Low |
+| Tests | Basic coverage | Full test suite | 🟡 | - | Medium |
 
 ---
 ## 3a. UI-Required Features
@@ -165,10 +181,15 @@ Structured Logging: JSON lines => fields: timestamp, level, trace_id (if any), c
 
 ---
 ## 10. Provider Abstraction Strategy
-Adapter Registry keyed by provider name.  
-Selection Precedence: (conversation.selected_model) -> default (config DEFAULT_MODEL).  
-Fallback Policy: On UNSUPPORTED_MODEL -> fallback to default + warning event.  
-Planned Adapters: OllamaAdapter (✅ baseline), OpenAIAdapter (🔴), AnthropicAdapter (🔴).
+Adapter Registry keyed by provider name via `LLM_PROVIDER` environment variable.
+Selection Precedence: (LLM_PROVIDER setting) -> Ollama (default).
+Factory pattern in `app/services/llm_providers/factory.py`.
+
+Implemented Providers:
+- OllamaProvider (✅ default) - Local Ollama server
+- OpenRouterProvider (✅) - OpenRouter API with API key auth
+
+Planned Adapters: OpenAIAdapter (🔴), AnthropicAdapter (🔴).
 
 ---
 ## 11. Trace Context Lifecycle
@@ -193,48 +214,94 @@ Staleness Heuristic: If underlying log asset timestamp > trace_context.created_a
 
 ---
 ## 13. Testing Roadmap
-| Phase | Tests | Tools |
-|-------|-------|-------|
-| 1 | Unit: parameter extraction, repositories | pytest + fixtures |
-| 2 | Integration: conversation CRUD, session expiry | ephemeral test DB |
-| 3 | Streaming: SSE event ordering, error events | async test client |
-| 4 | Provider fallback, trace context summarization | mock adapters |
+| Phase | Tests | Tools | Status |
+|-------|-------|-------|--------|
+| 1 | Unit: cache, LLM gateway, Loki cache | pytest + fixtures | ✅ |
+| 1 | Unit: planning agent, trace ID extractor | pytest | ✅ |
+| 2 | Integration: conversation CRUD, session expiry | ephemeral test DB | 🔴 |
+| 3 | Streaming: SSE event ordering, error events | async test client | 🔴 |
+| 4 | Provider fallback, trace context summarization | mock adapters | 🔴 |
 
-Coverage Targets: 40% (Phase 2), 55% (Phase 3), 70% (Phase 4).  
-CI Gate: Lint + unit tests must pass before merge (pre-commit hooks optional).
+Current test files:
+- `test_cache.py` - TTLCache, CacheManager, @cached decorator
+- `test_llm_gateway.py` - LLM cache gateway
+- `test_loki_cache.py` - Loki Redis cache
+- `test_planning_agent.py` - Planning agent
+- `test_trace_id_extractor.py` - Trace ID extraction
+
+CI Gate: Lint + unit tests must pass before merge.
 
 ---
 ## 14. Configuration & Validation
-Required Environment (validated at startup):
+Required Environment (validated at startup via Pydantic Settings):
+
+**Core Settings:**
 | Var | Default | Notes |
 |-----|---------|-------|
-| DATABASE_URL | (none) | Required Phase 1 |
-| SESSION_TIMEOUT_MINUTES | 30 | Minutes to expiry |
-| MAX_CONTEXT_MESSAGES | 20 | Sliding window size |
-| MAX_LOG_BYTES | 524288 | ~512 KB cap per request |
-| DEFAULT_MODEL | ollama:llama3 | Example value |
-| ENABLE_WEBSOCKET | false | Future transport |
-| LOG_LEVEL | INFO | Logging granularity |
+| DATABASE_URL | (required) | PostgreSQL connection |
+| DATABASE_SCHEMA | (required) | Schema name |
+| ANALYSIS_DIR | (required) | Output directory |
 
-Validation Method: pydantic BaseSettings (config module refactor P1).
+**LLM Provider Settings:**
+| Var | Default | Notes |
+|-----|---------|-------|
+| LLM_PROVIDER | ollama | "ollama" or "openrouter" |
+| OLLAMA_HOST | (required) | Ollama server URL |
+| MODEL | (required) | Default model name |
+| OPENROUTER_API_KEY | (none) | Required for OpenRouter |
+| OPENROUTER_MODEL | (none) | Override model for OpenRouter |
+
+**LLM Caching Settings:**
+| Var | Default | Notes |
+|-----|---------|-------|
+| LLM_CACHE_ENABLED | false | Enable LLM caching |
+| LLM_CACHE_L2_ENABLED | false | Enable Redis L2 |
+| LLM_CACHE_REDIS_URL | (none) | Redis connection URL |
+| LLM_GATEWAY_VERSION | v1 | Bump to invalidate cache |
+
+**Loki Cache Settings:**
+| Var | Default | Notes |
+|-----|---------|-------|
+| LOKI_CACHE_ENABLED | true | Enable Loki caching |
+| LOKI_CACHE_REDIS_ENABLED | false | Enable Redis persistence |
+| LOKI_CACHE_TTL_SECONDS | 14400 | 4 hours for general queries |
+| LOKI_CACHE_TRACE_TTL_SECONDS | 21600 | 6 hours for trace-specific queries |
+
+**Feature Flags:**
+| Var | Default | Notes |
+|-----|---------|-------|
+| USE_DB_PROMPTS | false | DB-backed prompts |
+| USE_DB_SETTINGS | false | DB-backed settings |
+| USE_DB_PROJECTS | false | DB-backed projects |
+
+Validation Method: Pydantic BaseSettings in `app/config.py`.
 
 ---
-## 15. Immediate Action Plan (Sprint 1)
-| Priority | Task | Owner | Status | Notes |
-|----------|------|-------|--------|-------|
-| P0 | Remove hardcoded params (orchestrator) | TBD | ❗ | Switch back to param_agent.run |
-| P0 | Define models + migration | TBD | 🔴 | Conversations, Messages, etc. |
-| P0 | Implement repositories layer | TBD | 🔴 | CRUD isolation |
-| P0 | Conversation create + message post endpoints | TBD | 🔴 | Minimal API |
-| P1 | SessionManager (DB-based) | TBD | 🔴 | Expiry logic |
-| P1 | TraceContext model + set-trace endpoint | TBD | 🔴 | Links active trace |
-| P1 | Trace summary generation | TBD | 🔴 | Async step events |
-| P1 | Error code module + mapping | TBD | 🔴 | Standard responses |
-| P2 | ProviderAdapter abstraction | TBD | 🔴 | Begin with OllamaAdapter |
-| P2 | Streaming protocol upgrades | TBD | 🔴 | token events |
-| P2 | Quick tools endpoints | TBD | 🔴 | extract-fields/mask-pii |
+## 15. Immediate Action Plan (Sprint 1) - Updated
 
-Dependency Note: Models -> Repositories -> Services -> Endpoints -> Streaming upgrades.
+**Completed:**
+| Priority | Task | Status | Notes |
+|----------|------|--------|-------|
+| P0 | Remove hardcoded params (orchestrator) | ✅ | Uses ParametersAgent |
+| P0 | Define models + migration (Prompts, Settings, Projects) | ✅ | Phases 1-4 complete |
+| P0 | Implement services layer | ✅ | PromptService, ConfigService, ProjectService |
+| P2 | ProviderAdapter abstraction | ✅ | Ollama + OpenRouter |
+| P2 | LLM response caching | ✅ | L1/L2 gateway |
+| P2 | Loki query caching | ✅ | Redis-backed cache |
+| - | Planning agent | ✅ | With clarification questions |
+
+**In Progress / Pending:**
+| Priority | Task | Status | Notes |
+|----------|------|--------|-------|
+| P0 | Define models (Conversations, Messages) | 🔴 | Next phase |
+| P1 | SessionManager (DB-based) | 🔴 | Expiry logic |
+| P1 | TraceContext model + set-trace endpoint | 🔴 | Links active trace |
+| P1 | Context rules DB migration | 🔴 | Phase 5 |
+| P1 | Admin API endpoints | 🔴 | Phase 6 |
+| P2 | Streaming protocol upgrades | 🟡 | token events |
+| P2 | Quick tools endpoints | 🔴 | extract-fields/mask-pii |
+
+Dependency Note: Conversation models -> Session persistence -> Trace context.
 
 ---
 ## 16. Acceptance Criteria (Phase 1 & 2)
@@ -282,6 +349,7 @@ Error Event: {"event":"error","code":"LLM_TIMEOUT","message":"Model timed out","
 ## 20. Change Log
 | Date | Version | Change |
 |------|---------|--------|
+| 2025-12-19 | 0.5.0 | Updated status matrix, added LLM caching/providers, updated testing roadmap |
 | 2025-09-14 | 0.4.0 | Added interfaces, metrics, error codes, streaming protocol, lifecycle & refined roadmap |
 | 2025-09-14 | 0.3.0 | UI feature integration draft (superseded) |
 | 2025-01-14 | 0.2.0 | Combined specs with UI requirements |

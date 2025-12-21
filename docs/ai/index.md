@@ -1,6 +1,13 @@
 # AI docs
 
-These pages are designed so an AI agent can “research the codebase” without opening the source tree directly.
+These pages are designed so an AI agent can "research the codebase" without opening the source tree directly.
+
+## Key Features
+
+- **LLM Provider Abstraction** - Ollama + OpenRouter support
+- **LLM Response Caching** - L1/L2 with stampede protection
+- **Loki Query Caching** - Redis-backed cache
+- **DB-backed Configuration** - Prompts, settings, projects
 
 ## Start here
 

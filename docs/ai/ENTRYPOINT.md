@@ -1,15 +1,22 @@
 # Entrypoint
 
-Goal: quickly locate the “main loop”, the request flow, and the extension points.
+Goal: quickly locate the "main loop", the request flow, and the extension points.
 
 ## What this repo is
 
 `agent-loggy` is a Python service for log analysis and verification. It exposes an API and orchestrates multiple LLM-powered agents to:
 
 - extract parameters from user text
+- plan the analysis pipeline (with clarification questions if needed)
 - find and collect logs (local files and/or Loki)
 - compile traces per trace-id
 - generate analysis and verification outputs
+
+Key infrastructure:
+- **LLM Provider Abstraction** - Supports Ollama and OpenRouter
+- **LLM Response Caching** - L1 (in-memory) + L2 (Redis) with stampede protection
+- **Loki Query Caching** - Optional Redis persistence for Loki results
+- **DB-backed Configuration** - Prompts, settings, and projects from database
 
 ## Where to start reading (in order)
 

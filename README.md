@@ -7,11 +7,16 @@
 ## Features
 
 - Parameter extraction from user input using an LLM agent
+- Pipeline planning with clarification questions
 - Log file searching and verification
 - Trace ID extraction across multiple log files
 - Compilation of comprehensive trace data per trace ID
 - Automated creation of analysis and summary files
 - Confidence scoring and summary reporting
+- **LLM Provider Abstraction** - Supports Ollama and OpenRouter
+- **LLM Response Caching** - L1 (in-memory) and L2 (Redis) with stampede protection
+- **Loki Query Caching** - Optional Redis persistence for Loki results
+- **Database Configuration** - Prompts, settings, and projects can be DB-backed
 
 ## Docs
 
@@ -43,6 +48,7 @@ agent-loggy/
 ├── app/
 │   ├── agents/                 # LLM-powered agents
 │   │   ├── parameter_agent.py  # Extracts parameters from input text
+│   │   ├── planning_agent.py   # Pipeline planning and clarification
 │   │   ├── file_searcher.py    # Finds and verifies relevant log files
 │   │   ├── analyze_agent.py    # Generates analysis reports
 │   │   └── verify_agent.py     # Verification and relevance scoring
@@ -52,9 +58,22 @@ agent-loggy/
 │   │   └── project.py          # Project configuration models
 │   ├── services/               # Business logic layer
 │   │   ├── cache.py            # TTL caching infrastructure
+│   │   ├── loki_redis_cache.py # Loki query caching with Redis
 │   │   ├── prompt_service.py   # Prompt management with versioning
 │   │   ├── config_service.py   # Configuration management
-│   │   └── project_service.py  # Project configuration service
+│   │   ├── project_service.py  # Project configuration service
+│   │   ├── llm_gateway/        # LLM caching gateway
+│   │   │   └── gateway.py      # L1/L2 cache with stampede protection
+│   │   └── llm_providers/      # LLM provider abstraction
+│   │       ├── base.py         # Provider interface
+│   │       ├── ollama_provider.py
+│   │       ├── openrouter_provider.py
+│   │       └── factory.py      # Provider factory
+│   ├── routers/                # API route handlers
+│   │   ├── chat.py             # Chat API with SSE streaming
+│   │   ├── analysis.py         # Direct analysis endpoint
+│   │   ├── files.py            # File download endpoint
+│   │   └── cache_admin.py      # Cache management endpoints
 │   ├── tools/                  # Utility tools
 │   │   ├── log_searcher.py     # Searches logs for patterns
 │   │   ├── trace_id_extractor.py
@@ -85,8 +104,14 @@ uv sync
 ### Running the Server
 
 ```bash
+# Development mode with hot reload (single worker)
+DEV_MODE=true uv run python -m app.main
+
+# Or using uvicorn directly
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+**Concurrency Note:** In production, the server runs with `(2 * CPU cores) + 1` workers. Set `DEV_MODE=true` for hot reload during development (single worker).
 
 ### Running Tests
 
@@ -209,12 +234,41 @@ When disabled, the system falls back to hardcoded defaults in the service layer.
 
 Environment variables (via `.env` file):
 
+### Core Settings
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `DATABASE_SCHEMA` | Database schema name (default: `agent_loggy`) |
+| `ANALYSIS_DIR` | Output directory for analysis files |
+
+### LLM Provider Settings
+| Variable | Description |
+|----------|-------------|
+| `LLM_PROVIDER` | Provider to use: `ollama` (default) or `openrouter` |
 | `OLLAMA_HOST` | Ollama server URL |
 | `MODEL` | LLM model name |
+| `OPENROUTER_API_KEY` | API key for OpenRouter |
+| `OPENROUTER_MODEL` | Model override for OpenRouter |
+
+### LLM Caching Settings
+| Variable | Description |
+|----------|-------------|
+| `LLM_CACHE_ENABLED` | Enable LLM response caching (default: `false`) |
+| `LLM_CACHE_L2_ENABLED` | Enable Redis L2 cache (default: `false`) |
+| `LLM_CACHE_REDIS_URL` | Redis connection URL for L2 cache |
+| `LLM_GATEWAY_VERSION` | Bump to invalidate cache |
+
+### Loki Cache Settings
+| Variable | Description |
+|----------|-------------|
+| `LOKI_CACHE_ENABLED` | Enable Loki query caching (default: `true`) |
+| `LOKI_CACHE_REDIS_ENABLED` | Enable Redis persistence |
+| `LOKI_CACHE_TTL_SECONDS` | General query TTL (default: `14400` / 4 hours) |
+| `LOKI_CACHE_TRACE_TTL_SECONDS` | Trace query TTL (default: `21600` / 6 hours) |
+
+### Feature Flags
+| Variable | Description |
+|----------|-------------|
 | `USE_DB_PROMPTS` | Enable database-backed prompts |
 | `USE_DB_SETTINGS` | Enable database-backed settings |
 | `USE_DB_PROJECTS` | Enable database-backed project config |

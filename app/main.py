@@ -5,7 +5,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import chat_router, analysis_router, files_router, cache_router
+from app.routers import chat_router, analysis_router, files_router, cache_router, conversations_router
 from app.startup import lifespan
 
 # Setup logging
@@ -32,6 +32,7 @@ app.include_router(chat_router)
 app.include_router(analysis_router)
 app.include_router(files_router)
 app.include_router(cache_router)
+app.include_router(conversations_router)
 
 
 @app.get("/health", tags=["health"])

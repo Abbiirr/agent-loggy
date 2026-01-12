@@ -12,6 +12,9 @@ from app.models.settings import AppSetting, SettingsHistory
 # Project models
 from app.models.project import Project, ProjectSetting, Environment
 
+# Conversation models
+from app.models.conversation import Conversation, Message, PipelineExecution
+
 # Models will be imported here as they are created
 # from app.models.context_rule import ContextRule, NegateRule
 
@@ -24,4 +27,7 @@ __all__ = [
     "Project",
     "ProjectSetting",
     "Environment",
+    "Conversation",
+    "Message",
+    "PipelineExecution",
 ]

@@ -19,6 +19,18 @@ from app.services.project_service import (
     get_loki_namespace,
 )
 
+# Conversation service
+from app.services.conversation_service import (
+    ConversationService,
+    get_conversation_service,
+)
+
+# Memory service
+from app.services.memory_service import (
+    MemoryService,
+    get_memory_service,
+)
+
 __all__ = [
     "TTLCache",
     "CacheManager",
@@ -34,4 +46,8 @@ __all__ = [
     "is_file_based",
     "is_loki_based",
     "get_loki_namespace",
+    "ConversationService",
+    "get_conversation_service",
+    "MemoryService",
+    "get_memory_service",
 ]

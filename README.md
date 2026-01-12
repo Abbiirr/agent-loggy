@@ -17,6 +17,8 @@
 - **LLM Response Caching** - L1 (in-memory) and L2 (Redis) with stampede protection
 - **Loki Query Caching** - Optional Redis persistence for Loki results
 - **Database Configuration** - Prompts, settings, and projects can be DB-backed
+- **RAG Context Rules** - Context-aware relevance scoring for log analysis
+- **Knowledge Base** (In Development) - pgvector-based semantic search for codebase documentation
 
 ## Docs
 
@@ -51,11 +53,13 @@ agent-loggy/
 │   │   ├── planning_agent.py   # Pipeline planning and clarification
 │   │   ├── file_searcher.py    # Finds and verifies relevant log files
 │   │   ├── analyze_agent.py    # Generates analysis reports
-│   │   └── verify_agent.py     # Verification and relevance scoring
+│   │   ├── verify_agent.py     # Verification, relevance scoring, RAG context
+│   │   └── report_writer.py    # Report formatting and file output
 │   ├── models/                 # SQLAlchemy ORM models
 │   │   ├── prompt.py           # Prompt versioning models
 │   │   ├── settings.py         # App settings models
-│   │   └── project.py          # Project configuration models
+│   │   ├── project.py          # Project configuration models
+│   │   └── knowledge_base.py   # Knowledge base models (kb_services, kb_elements)
 │   ├── services/               # Business logic layer
 │   │   ├── cache.py            # TTL caching infrastructure
 │   │   ├── loki_redis_cache.py # Loki query caching with Redis
@@ -82,14 +86,20 @@ agent-loggy/
 │   ├── db/                     # Database utilities
 │   │   ├── base.py             # SQLAlchemy Base class
 │   │   └── session.py          # Session factory
+│   ├── evals/                  # Evaluation framework
+│   │   └── datasets/           # Test cases for agent evaluation
 │   └── orchestrator.py         # Main analysis pipeline
 ├── alembic/                    # Database migrations
 │   ├── env.py
 │   └── versions/
-├── scripts/                    # Data seeding scripts
+├── scripts/                    # Utility and seeding scripts
 │   ├── seed_prompts.py
 │   ├── seed_settings.py
-│   └── seed_projects.py
+│   ├── seed_projects.py
+│   ├── build_agent_docs.py     # Generate agent documentation
+│   └── export_ai_pack.py       # Export AI research pack
+├── codebase/                   # Service codebases for knowledge base
+├── portable-db-access/         # Portable database access utilities
 └── app_settings/               # CSV-based configuration files
 ```
 
@@ -272,6 +282,16 @@ Environment variables (via `.env` file):
 | `USE_DB_PROMPTS` | Enable database-backed prompts |
 | `USE_DB_SETTINGS` | Enable database-backed settings |
 | `USE_DB_PROJECTS` | Enable database-backed project config |
+
+### Knowledge Base Settings
+| Variable | Description |
+|----------|-------------|
+| `KB_EMBEDDING_MODEL` | Embedding model (default: `nomic-embed-text`) |
+| `KB_EMBEDDING_DIMENSIONS` | Vector dimensions (default: `768`) |
+| `KB_EMBEDDING_BATCH_SIZE` | Batch size for embeddings (default: `32`) |
+| `KB_EMBEDDING_CACHE_ENABLED` | Enable embedding cache (default: `true`) |
+| `KB_RETRIEVAL_TOP_K` | Number of results to retrieve (default: `10`) |
+| `KB_RETRIEVAL_MIN_SIMILARITY` | Minimum similarity threshold (default: `0.5`) |
 
 ## Output Directories
 

@@ -21,6 +21,16 @@ class Settings(BaseSettings):
     USE_DB_SETTINGS: bool = False
     USE_DB_PROJECTS: bool = False
 
+    # ─── Persistent Conversations Feature Flag ────────────────
+    USE_PERSISTENT_CONVERSATIONS: bool = False  # Enable conversation history persistence
+
+    # ─── Conversation Settings ────────────────────────────────
+    CONVERSATION_MAX_MESSAGES: int = 100  # Max messages per conversation before archiving
+    CONVERSATION_SUMMARIZATION_THRESHOLD: int = 20  # Trigger summarization after N messages
+    CONVERSATION_CONTEXT_TOKENS: int = 4000  # Max tokens for context window
+    CONVERSATION_RECENT_MESSAGES: int = 10  # Recent messages to keep after summarization
+    CONVERSATION_TITLE_AUTO_GENERATE: bool = True  # Auto-generate title from first message
+
     # --- LLM cache / gateway ---
     LLM_CACHE_ENABLED: bool = False
     LLM_CACHE_NAMESPACE: str = "default"

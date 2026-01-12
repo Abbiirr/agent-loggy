@@ -258,7 +258,21 @@ class AnalyzeAgent:
             level = step.get('level', 'INFO')
             timeline_steps.append(f"{timestamp} [{level}] {operation}")
 
-        prompt = f"""
+        prompt_variables = {
+            "original_context": original_context[:300],
+            "time_frame": parameters.get('time_frame', 'N/A'),
+            "query_keys": parameters.get('query_keys', []),
+            "domain": parameters.get('domain', 'N/A'),
+            "trace_id": trace_id,
+            "total_entries": trace_data.get('total_entries', 0),
+            "source_files_count": len(trace_data.get('source_files', [])),
+            "timeline_events_count": len(timeline),
+            "timeline_count": len(timeline),
+            "sample_messages": "\n".join(sample_messages[:8]),
+            "timeline_steps": "\n".join(timeline_steps[:12]),
+        }
+
+        fallback_prompt = f"""
     You are a senior banking systems analyst investigating a transaction dispute. Analyze this trace by examining the actual log content to understand what happened during this transaction request.
 
     ORIGINAL DISPUTE: {original_context[:300]}
@@ -311,13 +325,15 @@ class AnalyzeAgent:
     }}
     """
 
+        user_prompt = _get_prompt_from_db("trace_analysis_user", prompt_variables) or fallback_prompt
+
         # Get system prompt from DB or use fallback
         system_prompt = _get_prompt_from_db("trace_analysis_system") or \
             "You are a senior banking systems analyst with expertise in transaction processing, log analysis, and dispute resolution. Analyze the provided log data thoroughly to understand exactly what happened during this transaction. Focus on technical details and evidence-based conclusions."
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": user_prompt}
         ]
 
         try:
@@ -368,7 +384,15 @@ class AnalyzeAgent:
             if message and len(message.strip()) > 10:
                 sample_messages.append(message[:200])
 
-        prompt = f"""
+        prompt_variables = {
+            "dispute_text": dispute_text[:300],
+            "trace_id": trace_id,
+            "total_entries": len(trace_entries),
+            "entry_count": len(trace_entries),
+            "sample_messages": "\n".join(sample_messages[:8]),
+        }
+
+        fallback_prompt = f"""
 You are a senior banking systems analyst investigating a customer dispute.
 
 CUSTOMER DISPUTE: {dispute_text[:300]}
@@ -397,13 +421,15 @@ Analyze this trace and provide your expert assessment in JSON format:
 }}
 """
 
+        user_prompt = _get_prompt_from_db("entries_analysis_user", prompt_variables) or fallback_prompt
+
         # Get system prompt from DB or use fallback
         entries_system_prompt = _get_prompt_from_db("entries_analysis_system") or \
             "You are a senior banking systems analyst. Provide thorough, evidence-based analysis."
 
         messages = [
             {"role": "system", "content": entries_system_prompt},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": user_prompt}
         ]
 
         try:
@@ -444,11 +470,19 @@ Analyze this trace and provide your expert assessment in JSON format:
     ) -> Dict:
         """Assess overall quality of the search and analysis."""
 
-        prompt = f"""
+        trace_count = len(trace_data.get('all_trace_data', {}))
+        prompt_variables = {
+            "original_context": original_context[:150],
+            "total_files": search_results.get('total_files', 0),
+            "total_matches": search_results.get('total_matches', 0),
+            "trace_count": trace_count,
+        }
+
+        fallback_prompt = f"""
 Rate overall log search quality for banking dispute. JSON only.
 
 CONTEXT: {original_context[:150]}
-RESULTS: {search_results.get('total_files', 0)} files, {search_results.get('total_matches', 0)} matches, {len(trace_data.get('all_trace_data', {}))} traces
+RESULTS: {search_results.get('total_files', 0)} files, {search_results.get('total_matches', 0)} matches, {trace_count} traces
 
 Rate 0-100 for:
 - COMPLETENESS: Sufficient data to understand issue?
@@ -466,13 +500,15 @@ JSON format:
 }}
 """
 
+        user_prompt = _get_prompt_from_db("quality_assessment_user", prompt_variables) or fallback_prompt
+
         # Get system prompt from DB or use fallback
         quality_system_prompt = _get_prompt_from_db("quality_assessment_system") or \
             "Banking analyst. JSON only."
 
         messages = [
             {"role": "system", "content": quality_system_prompt},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": user_prompt}
         ]
 
         try:

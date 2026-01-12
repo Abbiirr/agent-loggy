@@ -23,12 +23,14 @@ from dateutil import parser as date_parser
 from app.tools.loki.loki_log_report_generator import generate_comprehensive_report, parse_loki_json
 import csv
 
-from app.services.project_service import is_file_based, is_loki_based
+from app.services.project_service import is_file_based, is_loki_based, get_loki_namespace, get_project_service
+from app.services.config_service import get_setting
 from app.services.llm_gateway.gateway import CachePolicy
 
 logger = logging.getLogger(__name__)
 
-NEGATE_RULES_PATH = "app_settings/negate_keys.csv"
+# Default path - can be overridden via DB settings
+NEGATE_RULES_PATH = "app/app_settings/negate_keys.csv"
 
 
 @dataclass
@@ -50,6 +52,10 @@ class PipelineContext:
     master_report: str = ""
     cache_policy: Optional[CachePolicy] = None
     cache_diagnostics: Dict[str, Any] = field(default_factory=dict)
+    # Conversation context fields
+    conversation_id: Optional[str] = None
+    execution_id: Optional[str] = None
+    conversation_history: List[Dict[str, str]] = field(default_factory=list)
 
 
 class Orchestrator:
@@ -58,14 +64,22 @@ class Orchestrator:
     Refactored for clarity with each step as a separate method.
     """
 
-    def __init__(self, llm_provider: LLMProvider, model: str, log_base_dir: str = "./data"):
+    def __init__(self, llm_provider: LLMProvider, model: str, log_base_dir: str = None):
+        # Get output directories from DB settings or use defaults
+        analysis_output = get_setting("paths", "analysis_output", "app/comprehensive_analysis")
+        verification_output = get_setting("paths", "verification_output", "app/verification_reports")
+
+        # Default log base dir if not provided
+        if log_base_dir is None:
+            log_base_dir = "./data"
+
         self.param_agent = ParametersAgent(llm_provider, model)
         self.planning_agent = PlanningAgent(llm_provider, model)
         self.file_searcher = FileSearcher(Path(log_base_dir), llm_provider, model)
         self.log_searcher = LogSearcher(context=2)
         self.full_log_finder = FullLogFinder()
-        self.analyze_agent = AnalyzeAgent(llm_provider, model, output_dir="app/comprehensive_analysis")
-        self.verify_agent = RelevanceAnalyzerAgent(llm_provider, model, output_dir="app/verification_reports")
+        self.analyze_agent = AnalyzeAgent(llm_provider, model, output_dir=analysis_output)
+        self.verify_agent = RelevanceAnalyzerAgent(llm_provider, model, output_dir=verification_output)
 
     # ==================== MAIN PIPELINE ====================
 
@@ -76,15 +90,43 @@ class Orchestrator:
         env: str,
         domain: str,
         cache_policy: Optional[CachePolicy] = None,
+        conversation_id: Optional[str] = None,
+        execution_id: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
-        """Main analysis pipeline - orchestrates all steps."""
-        ctx = PipelineContext(text=text, project=project, env=env, domain=domain, cache_policy=cache_policy)
+        """Main analysis pipeline - orchestrates all steps.
+
+        Args:
+            text: The user's query text
+            project: Project code (e.g., 'MMBL', 'NCC')
+            env: Environment (e.g., 'prod', 'staging')
+            domain: Domain filter (e.g., 'NPSB')
+            cache_policy: Optional cache policy for LLM calls
+            conversation_id: Optional conversation UUID for persistence
+            execution_id: Optional execution UUID for tracking
+            conversation_history: Optional list of previous messages for context
+        """
+        ctx = PipelineContext(
+            text=text,
+            project=project,
+            env=env,
+            domain=domain,
+            cache_policy=cache_policy,
+            conversation_id=conversation_id,
+            execution_id=execution_id,
+            conversation_history=conversation_history or []
+        )
 
         # Load configuration (run in threadpool to avoid blocking event loop)
         ctx.negate_keys = await run_in_threadpool(self._load_negate_keys)
 
         # STEP 1: Parameter extraction
-        ctx.params, diag = await run_in_threadpool(self._step1_extract_parameters, ctx.text, ctx.cache_policy)
+        ctx.params, diag = await run_in_threadpool(
+            self._step1_extract_parameters,
+            ctx.text,
+            ctx.cache_policy,
+            ctx.conversation_history
+        )
         ctx.cache_diagnostics["parameter_extraction"] = diag.__dict__
         logger.info(f"Parameter extraction cache: {diag.status} (key: {diag.key_prefix[:12] if diag.key_prefix else 'N/A'}...)")
         yield "Extracted Parameters", {"parameters": ctx.params, "cache": ctx.cache_diagnostics["parameter_extraction"]}
@@ -98,6 +140,7 @@ class Orchestrator:
             domain=ctx.domain,
             extracted_params=ctx.params,
             cache_policy=ctx.cache_policy,
+            conversation_history=ctx.conversation_history,
         )
         logger.debug("Generated plan: %s", json.dumps(plan, indent=2))
 
@@ -136,6 +179,44 @@ class Orchestrator:
     # ==================== STEP METHODS ====================
 
     def _load_negate_keys(self) -> List[str]:
+        """Load negation keys from database (if enabled) or CSV configuration file."""
+        from app.config import settings
+
+        # Try database first if feature flag is enabled
+        if settings.USE_DB_SETTINGS:
+            try:
+                negate_keys = self._load_negate_keys_from_db()
+                if negate_keys:
+                    logger.info(f"Loaded {len(negate_keys)} negate keys from database")
+                    return negate_keys
+            except Exception as e:
+                logger.warning(f"Failed to load negate keys from database, falling back to CSV: {e}")
+
+        # Fallback to CSV file
+        return self._load_negate_keys_from_csv()
+
+    def _load_negate_keys_from_db(self) -> List[str]:
+        """Load negation keys from app_settings table."""
+        from app.db.session import get_db_session
+        from app.models.settings import AppSetting
+
+        negate_keys = []
+        with get_db_session() as db:
+            # Get negate keys from settings (stored as JSON list)
+            setting = db.query(AppSetting).filter(
+                AppSetting.category == "negate_rules",
+                AppSetting.setting_key == "terms",
+                AppSetting.is_active == True
+            ).first()
+
+            if setting:
+                negate_keys = setting.get_typed_value()
+                if isinstance(negate_keys, list):
+                    return negate_keys
+
+        return negate_keys
+
+    def _load_negate_keys_from_csv(self) -> List[str]:
         """Load negation keys from CSV configuration file."""
         negate_keys = []
         try:
@@ -147,6 +228,7 @@ class Orchestrator:
                         term = row[2].strip()
                         if term:
                             negate_keys.append(term)
+            logger.info(f"Loaded {len(negate_keys)} negate keys from CSV")
         except FileNotFoundError:
             logger.warning(f"Negation rules file not found at {NEGATE_RULES_PATH}")
         except Exception as e:
@@ -154,11 +236,18 @@ class Orchestrator:
         return negate_keys
 
     def _step1_extract_parameters(
-        self, text: str, cache_policy: Optional[CachePolicy] = None
+        self,
+        text: str,
+        cache_policy: Optional[CachePolicy] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None
     ) -> tuple[Dict[str, Any], Any]:
         """STEP 1: Extract parameters from user query using LLM."""
         logger.info("STEP 1: Parameter extraction…")
-        params, diag = self.param_agent.run(text, cache_policy=cache_policy)
+        params, diag = self.param_agent.run(
+            text,
+            cache_policy=cache_policy,
+            conversation_history=conversation_history
+        )
         logger.info("Extracted parameters: %s", json.dumps(params, indent=2))
         return params, diag
 
@@ -175,7 +264,21 @@ class Orchestrator:
     def _step2_search_logs_file_based(self, ctx: PipelineContext) -> Dict[str, Any]:
         """STEP 2 (file-based): Search local log files."""
         logger.info("STEP 2: File search…")
-        ctx.log_files = self.file_searcher.find_and_verify(ctx.params)
+
+        # Get project-specific log base path from DB or defaults
+        project_service = get_project_service()
+        log_base_path = project_service.get_log_base_path(ctx.project, ctx.env or "prod")
+
+        if log_base_path:
+            # Use project-specific path
+            from app.agents.file_searcher import FileSearcher
+            file_searcher = FileSearcher(Path(log_base_path), self.file_searcher.client, self.file_searcher.model)
+            ctx.log_files = file_searcher.find_and_verify(ctx.params)
+            logger.debug(f"Using project-specific log path: {log_base_path}")
+        else:
+            # Fall back to default file searcher
+            ctx.log_files = self.file_searcher.find_and_verify(ctx.params)
+
         files = [str(f) for f in ctx.log_files]
         logger.info({"found_files": files, "total_files": len(files)})
         return {"event": "Found relevant files", "data": {"total_files": len(files)}}
@@ -208,8 +311,12 @@ class Orchestrator:
 
         pipeline = [f'!= "{term}"' for term in ctx.negate_keys]
 
+        # Get Loki namespace from project configuration (DB or defaults)
+        loki_namespace = get_loki_namespace(ctx.project, ctx.env or "prod")
+        logger.debug(f"Using Loki namespace: {loki_namespace} for project: {ctx.project}")
+
         ctx.unique_filename = download_logs_cached(
-            filters={"service_namespace": ctx.project.lower()},
+            filters={"service_namespace": loki_namespace},
             search=query_keys,
             date_str=ctx.search_date,
             end_date_str=ctx.end_date_str,
@@ -289,9 +396,12 @@ class Orchestrator:
 
     async def _step4_compile_logs_loki(self, ctx: PipelineContext) -> Dict[str, Any]:
         """STEP 4 (Loki): Gather logs for each trace ID from Loki."""
+        # Get Loki namespace from project configuration (DB or defaults)
+        loki_namespace = get_loki_namespace(ctx.project, ctx.env or "prod")
+
         ctx.log_files = await run_in_threadpool(
             gather_logs_for_trace_ids,
-            filters={"service_namespace": ctx.project.lower()},
+            filters={"service_namespace": loki_namespace},
             trace_ids=ctx.unique_ids,
             date_str=ctx.search_date,
             end_date_str=ctx.end_date_str

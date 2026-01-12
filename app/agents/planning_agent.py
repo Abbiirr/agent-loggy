@@ -41,6 +41,7 @@ class PlanningAgent:
         domain: str,
         extracted_params: Optional[Dict[str, Any]] = None,
         cache_policy: Optional[CachePolicy] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         extracted_params = extracted_params or {}
 
@@ -48,10 +49,18 @@ class PlanningAgent:
             return self._fallback(text, project, env, domain, extracted_params)
 
         try:
-            messages = [
-                {"role": "system", "content": self._system_prompt()},
-                {"role": "user", "content": self._user_payload(text, project, env, domain, extracted_params)},
-            ]
+            # Build messages with optional conversation history
+            messages = [{"role": "system", "content": self._system_prompt()}]
+
+            # Include conversation history if provided
+            if conversation_history:
+                for msg in conversation_history:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+
+            # Add current user payload
+            messages.append(
+                {"role": "user", "content": self._user_payload(text, project, env, domain, extracted_params)}
+            )
             gateway = get_llm_cache_gateway()
 
             def compute() -> CacheableValue:

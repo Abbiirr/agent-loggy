@@ -76,7 +76,7 @@ class RelevanceResult:
 
 class RAGContextManager:
     """
-    Manages RAG context rules from file
+    Manages RAG context rules from database or file fallback.
     """
 
     def __init__(self, context_file_path: str = "context_rules.csv"):
@@ -85,7 +85,43 @@ class RAGContextManager:
         self.load_context_rules()
 
     def load_context_rules(self):
-        """Load context rules from CSV file"""
+        """Load context rules from database (if enabled) or CSV file fallback."""
+        # Try database first if feature flag is enabled
+        if settings.USE_DB_SETTINGS:
+            try:
+                self._load_from_database()
+                if self.rules:
+                    logger.info(f"Loaded {len(self.rules)} context rules from database")
+                    return
+            except Exception as e:
+                logger.warning(f"Failed to load context rules from database, falling back to CSV: {e}")
+
+        # Fallback to CSV file
+        self._load_from_csv()
+
+    def _load_from_database(self):
+        """Load context rules from database."""
+        from app.db.session import get_db_session
+        from app.models.context_rule import ContextRule as DBContextRule
+
+        with get_db_session() as db:
+            db_rules = db.query(DBContextRule).filter(
+                DBContextRule.is_active == True
+            ).all()
+
+            self.rules = []
+            for db_rule in db_rules:
+                rule = ContextRule(
+                    id=str(db_rule.id),
+                    context=db_rule.context,
+                    important=db_rule.important or "",
+                    ignore=db_rule.ignore or "",
+                    description=db_rule.description
+                )
+                self.rules.append(rule)
+
+    def _load_from_csv(self):
+        """Load context rules from CSV file."""
         if not self.context_file_path.exists():
             self.create_default_context_file()
 
@@ -106,7 +142,7 @@ class RAGContextManager:
             logger.info(f"Loaded {len(self.rules)} context rules from {self.context_file_path}")
 
         except Exception as e:
-            logger.error(f"Error loading context rules: {e}")
+            logger.error(f"Error loading context rules from CSV: {e}")
             self.rules = []
 
     def create_default_context_file(self):
@@ -205,20 +241,27 @@ class RelevanceAnalyzerAgent:
     Enhanced with RAG-based context rules.
     """
 
-    def __init__(self, client: LLMProvider, model: str, output_dir: str = "relevance_analysis",
+    def __init__(self, client: LLMProvider, model: str, output_dir: str = None,
                  context_file: str = "context_rules.csv"):
         self.client = client
         self.model = model
+
+        # Get output directory from DB settings or use default
+        if output_dir is None:
+            from app.services.config_service import get_setting
+            output_dir = get_setting("paths", "verification_output", "app/verification_reports")
+
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Initialize RAG context manager
+        # Initialize RAG context manager (uses DB if enabled)
         self.rag_manager = RAGContextManager(context_file)
 
-        # Define relevance thresholds
-        self.HIGHLY_RELEVANT_THRESHOLD = 80
-        self.RELEVANT_THRESHOLD = 60
-        self.POTENTIALLY_RELEVANT_THRESHOLD = 40
+        # Get relevance thresholds from DB settings or use defaults
+        from app.services.config_service import get_setting
+        self.HIGHLY_RELEVANT_THRESHOLD = get_setting("thresholds", "highly_relevant", 80)
+        self.RELEVANT_THRESHOLD = get_setting("thresholds", "relevant", 60)
+        self.POTENTIALLY_RELEVANT_THRESHOLD = get_setting("thresholds", "potentially_relevant", 40)
 
         logger.info(f"RelevanceAnalyzerAgent initialized with model: {model}")
         logger.info(f"RAG context rules loaded: {len(self.rag_manager.rules)}")
@@ -446,7 +489,27 @@ IMPORTANT PATTERNS TO LOOK FOR: {', '.join(important_patterns)}
 PATTERNS ALREADY FILTERED OUT: {', '.join([f"{rule.context}:{rule.ignore}" for rule in relevant_rules if rule.ignore])}
 """
 
-        prompt = f"""
+        additional_params = json.dumps(
+            {k: v for k, v in parameters.items() if k not in ['domain', 'query_keys', 'time_frame']},
+            indent=2
+        )
+        prompt_variables = {
+            "original_text": original_text,
+            "domain": parameters.get('domain', 'N/A'),
+            "query_keys": parameters.get('query_keys', []),
+            "time_frame": parameters.get('time_frame', 'N/A'),
+            "additional_params": additional_params,
+            "rag_context": rag_context,
+            "trace_id": trace_info.get('trace_id', 'unknown'),
+            "timestamp": trace_info.get('timestamp', 'N/A'),
+            "total_entries": trace_info.get('total_entries', 0),
+            "service_names": ', '.join(service_names[:5]),
+            "operations": ', '.join(operations[:10]),
+            "log_samples": "\n".join(log_samples[:10]),
+            "timeline_summary": timeline_summary,
+        }
+
+        fallback_prompt = f"""
 You are an expert system analyst determining if a request trace is relevant to a user's query.
 You have access to context rules that help identify what's important vs what should be ignored.
 
@@ -456,7 +519,7 @@ EXTRACTED PARAMETERS:
 - Domain: {parameters.get('domain', 'N/A')}
 - Query Keys: {parameters.get('query_keys', [])}
 - Time Frame: {parameters.get('time_frame', 'N/A')}
-- Additional Parameters: {json.dumps({k: v for k, v in parameters.items() if k not in ['domain', 'query_keys', 'time_frame']}, indent=2)}
+- Additional Parameters: {additional_params}
 
 {rag_context}
 
@@ -500,13 +563,15 @@ Provide analysis in JSON format:
 }}
 """
 
+        user_prompt = _get_prompt_from_db("relevance_analysis_user", prompt_variables) or fallback_prompt
+
         # Get system prompt from DB or use fallback
         relevance_system_prompt = _get_prompt_from_db("relevance_analysis_system") or \
             "You are an expert at analyzing system logs and determining relevance to user queries. Use provided context rules to make better relevance decisions. Be precise and thorough in your analysis."
 
         messages = [
             {"role": "system", "content": relevance_system_prompt},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": user_prompt}
         ]
 
         try:

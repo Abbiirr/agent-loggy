@@ -96,7 +96,8 @@ class Agent:
 | PlanningAgent | `planning_agent.py` | Produces execution plan and clarifying questions |
 | FileSearcher | `file_searcher.py` | Finds relevant log files for file-based projects |
 | AnalyzeAgent | `analyze_agent.py` | Generates analysis reports from log data |
-| RelevanceAnalyzerAgent | `verify_agent.py` | Scores relevance and validates findings |
+| RelevanceAnalyzerAgent | `verify_agent.py` | Scores relevance with RAG context rules |
+| ReportWriter | `report_writer.py` | Formats and writes analysis reports |
 
 ### 4. Services (`app/services/`)
 
@@ -201,6 +202,38 @@ The system supports multiple LLM providers through a common interface:
 **Configuration:**
 - `LLM_PROVIDER=ollama` - Use local Ollama (default)
 - `LLM_PROVIDER=openrouter` - Use OpenRouter API
+
+## Knowledge Base Architecture (In Development)
+
+The knowledge base provides semantic search over codebase documentation using pgvector:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Knowledge Base System                        │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌───────────────┐    ┌───────────────┐    ┌────────────────┐  │
+│  │  kb_services  │    │  kb_elements  │    │ kb_ingestion   │  │
+│  │  (service-    │◄──►│  (endpoints,  │    │    _runs       │  │
+│  │   level docs) │    │   classes)    │    │  (job status)  │  │
+│  └───────────────┘    └───────────────┘    └────────────────┘  │
+│         │                    │                                   │
+│         v                    v                                   │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │            pgvector (768-dim embeddings)                     ││
+│  │            IVFFlat indexes for similarity search             ││
+│  └─────────────────────────────────────────────────────────────┘│
+├─────────────────────────────────────────────────────────────────┤
+│  Embedding Model: nomic-embed-text (768 dimensions)              │
+│  Batch Size: 32 | Cache TTL: 24 hours | Min Similarity: 0.5     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Database Tables:**
+| Table | Purpose |
+|-------|---------|
+| `kb_services` | Service-level knowledge with embeddings |
+| `kb_elements` | Element-level knowledge (endpoints, exceptions, methods) |
+| `kb_ingestion_runs` | Tracking ingestion jobs with metrics |
 
 ## Project-Based Routing
 
@@ -361,6 +394,18 @@ Environment variables (`.env`):
 |----------|---------|-------------|
 | `DEV_MODE` | `false` | Enable hot reload (single worker) |
 | `WORKERS` | `(2*CPU)+1` | Number of uvicorn workers |
+
+**Knowledge Base Settings:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KB_EMBEDDING_MODEL` | `nomic-embed-text` | Embedding model name |
+| `KB_EMBEDDING_DIMENSIONS` | `768` | Vector dimensions |
+| `KB_EMBEDDING_BATCH_SIZE` | `32` | Batch size for embeddings |
+| `KB_EMBEDDING_CACHE_ENABLED` | `true` | Enable embedding cache |
+| `KB_EMBEDDING_CACHE_TTL_SECONDS` | `86400` | Embedding cache TTL (24 hours) |
+| `KB_CODEBASE_PATH` | `codebase` | Path to codebase for ingestion |
+| `KB_RETRIEVAL_TOP_K` | `10` | Number of results to retrieve |
+| `KB_RETRIEVAL_MIN_SIMILARITY` | `0.5` | Minimum similarity threshold |
 
 ## Output Directories
 

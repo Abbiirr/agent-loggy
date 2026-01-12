@@ -17,6 +17,8 @@ Key infrastructure:
 - **LLM Response Caching** - L1 (in-memory) + L2 (Redis) with stampede protection
 - **Loki Query Caching** - Optional Redis persistence for Loki results
 - **DB-backed Configuration** - Prompts, settings, and projects from database
+- **RAG Context Rules** - Context-aware relevance scoring with ignore/important patterns
+- **Knowledge Base** (In Development) - pgvector-based semantic search for codebase docs
 
 ## Where to start reading (in order)
 

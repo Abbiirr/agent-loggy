@@ -53,6 +53,12 @@ USE_DB_PROJECTS=false
 
 # Output directories
 ANALYSIS_DIR=app/comprehensive_analysis
+
+# Knowledge Base (optional)
+# KB_EMBEDDING_MODEL=nomic-embed-text
+# KB_EMBEDDING_DIMENSIONS=768
+# KB_CODEBASE_PATH=codebase
+# KB_RETRIEVAL_TOP_K=10
 ```
 
 ### 3. Set Up Database
@@ -104,9 +110,10 @@ agent-loggy/
 │   │   ├── parameter_agent.py
 │   │   ├── planning_agent.py
 │   │   ├── analyze_agent.py
-│   │   └── verify_agent.py
+│   │   ├── verify_agent.py
+│   │   └── report_writer.py
 │   ├── db/               # Database layer (SQLAlchemy)
-│   ├── models/           # ORM models
+│   ├── models/           # ORM models (prompts, settings, projects, knowledge_base)
 │   ├── routers/          # FastAPI route handlers
 │   │   ├── chat.py
 │   │   ├── analysis.py

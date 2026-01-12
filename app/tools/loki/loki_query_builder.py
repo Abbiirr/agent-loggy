@@ -74,8 +74,16 @@ class LokiCacheMetrics:
 # Global metrics instance
 loki_cache_metrics = LokiCacheMetrics()
 
-# Default Loki endpoint
-BASE_URL = "https://loki-gateway.local.fintech23.xyz/loki/api/v1/query_range"
+# Default Loki endpoint - can be overridden via DB settings
+def _get_loki_base_url() -> str:
+    """Get Loki base URL from DB settings or fallback to default."""
+    try:
+        from app.services.config_service import get_setting
+        return get_setting("loki", "base_url", "https://loki-gateway.local.fintech23.xyz/loki/api/v1/query_range")
+    except Exception:
+        return "https://loki-gateway.local.fintech23.xyz/loki/api/v1/query_range"
+
+BASE_URL = _get_loki_base_url()
 
 
 def _parse_single_datetime(date_str: str, time_str: Union[str, None] = None) -> datetime:

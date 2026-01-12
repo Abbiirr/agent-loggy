@@ -149,7 +149,12 @@ class ParametersAgent:
 
     # ---------------------- Public API ----------------------
 
-    def run(self, text: str, cache_policy: Optional[CachePolicy] = None) -> tuple[Dict, CacheDiagnostics]:
+    def run(
+        self,
+        text: str,
+        cache_policy: Optional[CachePolicy] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None
+    ) -> tuple[Dict, CacheDiagnostics]:
         # Check LLM provider availability but don't crash the app
         if not self.client.is_available():
             logger.error(f"LLM provider '{self.client.provider_name}' is not available. Using fallback extraction.")
@@ -158,10 +163,17 @@ class ParametersAgent:
 
         try:
             system_prompt = self._build_system_prompt()
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": text.strip()},
-            ]
+
+            # Build messages with optional conversation history
+            messages = [{"role": "system", "content": system_prompt}]
+
+            # Include conversation history if provided
+            if conversation_history:
+                for msg in conversation_history:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+
+            # Add current user query
+            messages.append({"role": "user", "content": text.strip()})
             timeout = _get_config("ollama", "timeout", 30)
             gateway = get_llm_cache_gateway()
 

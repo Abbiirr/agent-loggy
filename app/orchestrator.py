@@ -9,6 +9,7 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from starlette.concurrency import run_in_threadpool
 from app.services.llm_providers import LLMProvider
+from app.agents.intent_classifier import MessageIntentClassifier, PIPELINE_INTENTS, MessageIntent
 from app.agents.parameter_agent import ParametersAgent
 from app.agents.planning_agent import PlanningAgent
 from app.agents.file_searcher import FileSearcher
@@ -56,6 +57,8 @@ class PipelineContext:
     conversation_id: Optional[str] = None
     execution_id: Optional[str] = None
     conversation_history: List[Dict[str, str]] = field(default_factory=list)
+    # Intent classification result
+    intent: Optional[Dict[str, Any]] = None
 
 
 class Orchestrator:
@@ -73,6 +76,7 @@ class Orchestrator:
         if log_base_dir is None:
             log_base_dir = "./data"
 
+        self.intent_classifier = MessageIntentClassifier(llm_provider, model)
         self.param_agent = ParametersAgent(llm_provider, model)
         self.planning_agent = PlanningAgent(llm_provider, model)
         self.file_searcher = FileSearcher(Path(log_base_dir), llm_provider, model)
@@ -120,7 +124,28 @@ class Orchestrator:
         # Load configuration (run in threadpool to avoid blocking event loop)
         ctx.negate_keys = await run_in_threadpool(self._load_negate_keys)
 
-        # STEP 1: Parameter extraction
+        # STEP 0: Intent classification - determine if message requires pipeline
+        ctx.intent = await run_in_threadpool(
+            self._step0_classify_intent,
+            ctx.text,
+            ctx.cache_policy,
+            ctx.conversation_history
+        )
+        logger.info(f"Intent classification: {ctx.intent.get('intent')} (confidence: {ctx.intent.get('confidence', 0):.2f})")
+        yield "Classified Intent", {"intent": ctx.intent}
+
+        # Route based on intent - short-circuit for non-pipeline intents
+        if not ctx.intent.get("requires_pipeline", True):
+            response = ctx.intent.get("response", "How can I help you with log analysis?")
+            logger.info(f"Non-pipeline intent ({ctx.intent.get('intent')}), returning early with response")
+            yield "done", {
+                "status": "non_pipeline_response",
+                "intent": ctx.intent.get("intent"),
+                "message": response
+            }
+            return
+
+        # STEP 1: Parameter extraction (only for pipeline intents)
         ctx.params, diag = await run_in_threadpool(
             self._step1_extract_parameters,
             ctx.text,
@@ -177,6 +202,22 @@ class Orchestrator:
         yield "done", {"message": "Analysis complete."}
 
     # ==================== STEP METHODS ====================
+
+    def _step0_classify_intent(
+        self,
+        text: str,
+        cache_policy: Optional[CachePolicy] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None
+    ) -> Dict[str, Any]:
+        """STEP 0: Classify message intent to determine routing."""
+        logger.info("STEP 0: Intent classification...")
+        result = self.intent_classifier.classify(
+            text=text,
+            conversation_history=conversation_history,
+            cache_policy=cache_policy
+        )
+        logger.info(f"Intent: {result.get('intent')}, requires_pipeline: {result.get('requires_pipeline')}")
+        return result
 
     def _load_negate_keys(self) -> List[str]:
         """Load negation keys from database (if enabled) or CSV configuration file."""
